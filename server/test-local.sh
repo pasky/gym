@@ -9,7 +9,9 @@ MOD=/usr/lib/apache2/modules
 trap 'kill $(cat "$T/httpd.pid" 2>/dev/null) 2>/dev/null || true; rm -rf "$T"' EXIT
 
 mkdir -p "$T/data" "$T/docroot" "$T/lock"
-printf '%s\n' testpass | htpasswd -ciB "$T/htpasswd" gym 2>/dev/null
+printf '%s\n' testpass | htpasswd -ciB "$T/htpasswd" selftest 2>/dev/null
+printf '%s\n' alicepass | htpasswd -iB "$T/htpasswd" alice 2>/dev/null
+echo '{"alice":"original"}' > "$T/data/alice.json"
 sed -e "s|@URLPATH@|/gym-sync|g" -e "s|@DIR@|$T/data|g" -e "s|@HTPASSWD@|$T/htpasswd|g" "$HERE/gym-sync.conf.in" > "$T/gym-sync.conf"
 
 cat > "$T/httpd.conf" <<EOF
@@ -63,7 +65,8 @@ EOF
 /usr/sbin/apache2 -f "$T/httpd.conf" -k start || { cat "$T/error.log"; exit 1; }
 sleep 1
 rc=0
-GYM_SYNC_PASS=testpass sh "$HERE/check-webdav.sh" "http://127.0.0.1:$PORT/gym-sync" gym || rc=$?
+GYM_SYNC_USER=selftest GYM_SYNC_PASS=testpass GYM_SYNC_OTHER=alice sh "$HERE/check-webdav.sh" "http://127.0.0.1:$PORT/gym-sync" </dev/null || rc=$?
+grep -q original "$T/data/alice.json" && echo "ok    alice.json untouched" || { echo "FAIL  alice.json modified"; rc=1; }
 echo "-- files written:"; ls -la "$T/data"
 [ $rc = 0 ] || { echo "-- error.log:"; tail -20 "$T/error.log"; }
 exit $rc

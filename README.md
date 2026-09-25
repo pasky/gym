@@ -22,8 +22,10 @@ Issues found on the two sheets (`img/sheets/`). The corrected muscle lists are i
 
 ## Server sync storage (WebDAV)
 
-`server/` sets up `https://pasky.or.cz/gym-sync/`, a password-protected file store for the app's JSON state. It uses Apache's WebDAV module, allows only GET/PUT, and runs no application code on the server.
+`server/` sets up `https://pasky.or.cz/gym-sync/<profile>.json` using Apache's WebDAV module, with no application code on the server. Each profile has its own file and password. **Files are world-readable** (for now); only a profile's own password can overwrite its file. Everything other than GET/PUT of a plain `<profile>.json` name is refused.
 
-- `sudo sh server/setup-webdav.sh` installs it (idempotent) and prints the generated password once. It also accepts `--reset-password` and `--uninstall`.
-- `sh server/test-local.sh` tests the same config template on a throwaway unprivileged Apache (port 18080). No root needed.
-- `GYM_SYNC_PASS=... sh server/check-webdav.sh URL [USER]` verifies a live endpoint: unauthenticated requests get 401/403; DAV/XML methods, DELETE/MOVE/COPY/MKCOL, directory listing, non-`name.json` filenames (e.g. `x.php`, `.htaccess`) and oversized uploads are refused.
+- `sudo sh server/setup-webdav.sh install` sets up the Apache config (idempotent, rolls back on failure) and runs live checks with a temporary profile.
+- `sudo sh server/setup-webdav.sh add NAME` / `passwd NAME` / `remove NAME [--purge]` / `list` manage profiles. Passwords are generated and printed once. Changes are live immediately, without an Apache reload.
+- `sudo sh server/setup-webdav.sh check` / `uninstall`.
+- `sh server/test-local.sh` tests the config template on a throwaway unprivileged Apache, including inherited-handler (PHP-like) and cross-profile write attempts.
+- `sh server/test-setup-sandbox.sh` runs the whole root script end to end without root, against a sandboxed Apache and vhost file: install, re-install, profiles, rollback of a broken config, uninstall.

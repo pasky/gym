@@ -1,21 +1,26 @@
 #!/bin/sh
-# Set up https://pasky.or.cz/gym-sync/ : password-protected GET/PUT storage for the gym app,
-# served by the existing Apache via mod_dav. Run as root. Safe to re-run (idempotent).
+# Gym log sync storage on the existing Apache (mod_dav): https://pasky.or.cz/gym-sync/<profile>.json
+# World-readable; each profile can only PUT its own file, with its own password. Run as root.
 #
-#   sudo sh server/setup-webdav.sh                  # first run: generates and prints a password
-#   sudo sh server/setup-webdav.sh --reset-password # new password
-#   sudo sh server/setup-webdav.sh --uninstall      # remove the Include (keeps data and files)
+#   sudo sh server/setup-webdav.sh install         # set up / update Apache config (idempotent), then check
+#   sudo sh server/setup-webdav.sh add NAME        # new profile; prints its generated password
+#   sudo sh server/setup-webdav.sh passwd NAME     # new password for a profile
+#   sudo sh server/setup-webdav.sh remove NAME [--purge]  # revoke write access (--purge: also delete data)
+#   sudo sh server/setup-webdav.sh list            # profiles and their data files
+#   sudo sh server/setup-webdav.sh check           # live endpoint checks (uses a temporary profile)
+#   sudo sh server/setup-webdav.sh uninstall       # remove the vhost Include (keeps data and files)
 #
-# What it does:
+# Profile names: [a-z0-9_-]{1,32}. Profile changes take effect immediately (no Apache reload).
+#
+# `install` does:
 #   - apt-installs apache2-utils (htpasswd) if missing
 #   - creates /var/lib/gym-sync (www-data, 0750): the only place Apache may write
-#   - creates /etc/apache2/gym-sync.htpasswd (user "gym", bcrypt, random 32-char password)
+#   - creates /etc/apache2/gym-sync.htpasswd (root:www-data 0640, bcrypt) if missing
 #   - writes /etc/apache2/gym-sync.conf from gym-sync.conf.in
 #   - adds "Include /etc/apache2/gym-sync.conf" to the pasky.or.cz HTTPS vhost
 #   - enables mod_dav, mod_dav_fs, mod_headers; configtest; graceful reload
-#     (on any failure before the reload, the previous vhost/snippet are restored and re-tested)
-#   - runs check-webdav.sh against the live endpoint (asks for the password on re-runs);
-#     exits non-zero if it fails
+#     (on any failure or signal before the reload, the previous vhost/snippet are restored and re-tested)
+#   - runs `check`; exits non-zero if it fails
 set -eu
 
 HOST=pasky.or.cz
@@ -24,7 +29,7 @@ URLPATH=/gym-sync
 DIR=/var/lib/gym-sync
 CONF=/etc/apache2/gym-sync.conf
 HTPASSWD=/etc/apache2/gym-sync.htpasswd
-DAVUSER=gym
+SELFTEST=selftest
 HERE=$(cd "$(dirname "$0")" && pwd)
 STAMP=$(date +%Y%m%d%H%M%S)
 # an active (uncommented) Include of exactly $CONF
@@ -32,14 +37,85 @@ CONF_RE=$(printf '%s' "$CONF" | sed 's/[.]/\\./g')
 INCLUDE_RE="^[[:space:]]*Include[[:space:]]+${CONF_RE}[[:space:]]*$"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+usage() { sed -n '4,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [ "$(id -u)" = 0 ] || die "run as root"
-[ -f "$VHOST" ] || die "vhost $VHOST not found"
-[ -f "$HERE/gym-sync.conf.in" ] || die "gym-sync.conf.in not found next to this script"
-[ -f "$HERE/check-webdav.sh" ] || die "check-webdav.sh not found next to this script"
-apache2ctl configtest >/dev/null 2>&1 || die "Apache config is already failing configtest; fix that first"
+CMD=${1:-}; [ -n "$CMD" ] || usage
+NAME=${2:-}
 
-if [ "${1:-}" = "--uninstall" ]; then
+valid_name() { printf '%s' "$1" | grep -Eqx '[a-z0-9_-]{1,32}'; }
+has_user() { [ -f "$HTPASSWD" ] && cut -d: -f1 "$HTPASSWD" | grep -qxF "$1"; }
+genpass() {
+	p=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-32)
+	[ ${#p} = 32 ] || die "password generation failed"
+	printf '%s' "$p"
+}
+# htpasswd_edit ARGS... : run htpasswd on a private copy, then atomically replace the real file
+# (password, if any, comes on stdin; never on argv)
+htpasswd_edit() {
+	t=$(umask 077; mktemp "$HTPASSWD.XXXXXX")
+	[ -f "$HTPASSWD" ] && cat "$HTPASSWD" > "$t"
+	htpasswd "$@" "$t" "$NAME_" >/dev/null 2>&1 || { rm -f "$t"; die "htpasswd failed"; }
+	chown root:www-data "$t"; chmod 0640 "$t"
+	mv -f "$t" "$HTPASSWD"
+}
+set_password() { # set_password NAME PASSWORD
+	NAME_=$1
+	printf '%s\n' "$2" | htpasswd_edit -iB
+}
+del_user() { NAME_=$1; htpasswd_edit -D; }
+need_installed() { grep -Eq "$INCLUDE_RE" "$VHOST" || echo "note: not installed in Apache yet; run 'install' too" >&2; }
+
+cmd_check() {
+	command -v curl >/dev/null || die "curl missing"
+	has_user "$SELFTEST" && die "profile '$SELFTEST' exists; it's reserved for checks, remove it first"
+	pass=$(genpass)
+	set_password "$SELFTEST" "$pass"
+	# always drop the temporary profile and its file, even on failure or Ctrl-C
+	trap 'del_user "$SELFTEST"; rm -f "$DIR/$SELFTEST.json" "$DIR/nobody-else.json"' EXIT
+	trap 'exit 1' HUP INT TERM
+	echo "== Checking https://$HOST$URLPATH (temporary profile '$SELFTEST')"
+	rc=0
+	GYM_SYNC_USER=$SELFTEST GYM_SYNC_PASS=$pass GYM_SYNC_OTHER=nobody-else \
+		sh "$HERE/check-webdav.sh" "https://$HOST$URLPATH" </dev/null || rc=$?
+	return $rc
+}
+
+case "$CMD" in
+add|passwd)
+	valid_name "$NAME" || die "profile name must match [a-z0-9_-]{1,32}"
+	[ "$NAME" = "$SELFTEST" ] && die "'$SELFTEST' is reserved"
+	command -v htpasswd >/dev/null || apt-get install -y apache2-utils
+	if [ "$CMD" = add ]; then has_user "$NAME" && die "profile '$NAME' exists; use 'passwd $NAME' for a new password"
+	else has_user "$NAME" || die "no profile '$NAME'"; fi
+	pass=$(genpass)
+	set_password "$NAME" "$pass"
+	echo "Profile:  $NAME"
+	echo "File:     https://$HOST$URLPATH/$NAME.json  (world-readable)"
+	echo "Password: $pass"
+	echo "(shown only now; store it in your password manager, then enter it in the app)"
+	need_installed
+	exit 0 ;;
+remove)
+	valid_name "$NAME" || die "usage: remove NAME [--purge]"
+	has_user "$NAME" || die "no profile '$NAME'"
+	del_user "$NAME"
+	echo "Profile '$NAME' can no longer write."
+	if [ "${3:-}" = "--purge" ]; then rm -f "$DIR/$NAME.json"; echo "Deleted $DIR/$NAME.json."
+	elif [ -f "$DIR/$NAME.json" ]; then echo "Its data stays (and stays world-readable): $DIR/$NAME.json. Use --purge to delete it."; fi
+	exit 0 ;;
+list)
+	[ -f "$HTPASSWD" ] || { echo "no profiles (not installed?)"; exit 0; }
+	cut -d: -f1 "$HTPASSWD" | while read -r u; do
+		f="$DIR/$u.json"
+		if [ -f "$f" ]; then printf '%-20s %8s bytes  %s\n' "$u" "$(stat -c %s "$f")" "$(stat -c %y "$f" | cut -d. -f1)"
+		else printf '%-20s (no data yet)\n' "$u"; fi
+	done
+	exit 0 ;;
+check)
+	cmd_check; exit $? ;;
+uninstall)
 	grep -Eq "$INCLUDE_RE" "$VHOST" || { echo "Not installed in $VHOST; nothing to do."; exit 0; }
+	apache2ctl configtest >/dev/null 2>&1 || die "Apache config is already failing configtest; fix that first"
 	cp -a "$VHOST" "$VHOST.bak-gym-sync-$STAMP"
 	sed -i -E "\|$INCLUDE_RE|d" "$VHOST"
 	if ! apache2ctl configtest; then
@@ -49,31 +125,29 @@ if [ "${1:-}" = "--uninstall" ]; then
 	systemctl reload apache2
 	echo "Removed the Include from $VHOST (backup: $VHOST.bak-gym-sync-$STAMP) and reloaded Apache."
 	echo "Left in place: $DIR (data), $CONF, $HTPASSWD. mod_dav is still enabled; 'a2dismod dav_fs dav' if unused."
-	exit 0
-fi
+	exit 0 ;;
+install) ;;
+*) usage ;;
+esac
+
+# ---------------- install ----------------
+[ -f "$VHOST" ] || die "vhost $VHOST not found"
+[ -f "$HERE/gym-sync.conf.in" ] || die "gym-sync.conf.in not found next to this script"
+[ -f "$HERE/check-webdav.sh" ] || die "check-webdav.sh not found next to this script"
+apache2ctl configtest >/dev/null 2>&1 || die "Apache config is already failing configtest; fix that first"
 
 # 1. tools
 command -v htpasswd >/dev/null || apt-get install -y apache2-utils
 command -v openssl >/dev/null || die "openssl missing"
 command -v curl >/dev/null || die "curl missing"
 
-# 2. storage dir, outside every DocumentRoot
+# 2. storage dir (outside every DocumentRoot) and password file
 install -d -o www-data -g www-data -m 0750 "$DIR"
-
-# 3. credentials (bcrypt; password via stdin so it never shows up in ps)
-NEWPASS=
-if [ ! -s "$HTPASSWD" ] || [ "${1:-}" = "--reset-password" ]; then
-	NEWPASS=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-32)
-	[ ${#NEWPASS} = 32 ] || die "password generation failed"
-	HTTMP=$(umask 077; mktemp "$HTPASSWD.XXXXXX")
-	printf '%s\n' "$NEWPASS" | htpasswd -ciB "$HTTMP" "$DAVUSER" 2>/dev/null || { rm -f "$HTTMP"; die "htpasswd failed"; }
-	chown root:www-data "$HTTMP"
-	chmod 0640 "$HTTMP"
-	mv -f "$HTTMP" "$HTPASSWD"
-	echo "New password for user '$DAVUSER': $NEWPASS  (also repeated at the end)"
+if [ ! -f "$HTPASSWD" ]; then
+	install -o root -g www-data -m 0640 /dev/null "$HTPASSWD"
 fi
 
-# 4. config changes, transactional: back up, apply, configtest; restore everything on any failure
+# 3. config changes, transactional: back up, apply, configtest; restore everything on any failure
 BK=$(mktemp -d)
 cp -a "$VHOST" "$BK/vhost"
 [ -f "$CONF" ] && cp -a "$CONF" "$BK/conf"
@@ -112,19 +186,12 @@ trap - EXIT HUP INT TERM
 rm -rf "$BK"
 sleep 2
 
-# 5. verify the live endpoint
+# 4. verify the live endpoint
 echo
-echo "== Checking https://$HOST$URLPATH"
-rc=0
-GYM_SYNC_PASS=$NEWPASS sh "$HERE/check-webdav.sh" "https://$HOST$URLPATH" "$DAVUSER" || rc=$?
-rm -f "$DIR/selftest.json"
-
+rc=0; cmd_check || rc=$?
 echo
-echo "Endpoint: https://$HOST$URLPATH/state.json"
-echo "User:     $DAVUSER"
-if [ -n "$NEWPASS" ]; then
-	echo "Password: $NEWPASS"
-	echo "(shown only now; store it in your password manager, then enter it in the app)"
-fi
+echo "Endpoint: https://$HOST$URLPATH/<profile>.json (world-readable; PUT needs that profile's password)"
 echo "Data dir: $DIR (include it in backups)"
-[ $rc = 0 ] || die "Apache config is installed, but the live endpoint checks FAILED (see above). Fix, or run with --uninstall."
+[ -s "$HTPASSWD" ] && { echo "Profiles:"; cut -d: -f1 "$HTPASSWD" | grep -vxF "$SELFTEST" | sed 's/^/  /'; } \
+	|| echo "No profiles yet: sudo sh $0 add NAME"
+[ $rc = 0 ] || die "Apache config is installed, but the live endpoint checks FAILED (see above). Fix, or run 'uninstall'."
