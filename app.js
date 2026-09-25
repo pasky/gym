@@ -382,6 +382,30 @@ function exitView() {
   try { v = JSON.parse(sessionStorage.getItem(VIEW_KEY)); } catch (e) { /* ignore */ }
   if (v && v.data) { VIEW = { repo: v.repo, path: v.path, at: v.at }; S = normalize(v.data); }
 })();
+// QR codes for connect links (so a long token gets to a phone by scanning). The encoder
+// (vendor/qrcode.js, MIT) is loaded only when needed.
+let qrLib = null;
+function loadQr() {
+  qrLib ||= new Promise((ok, fail) => {
+    const sc = document.createElement('script');
+    sc.src = 'vendor/qrcode.js'; sc.onload = () => ok(window.qrcode); sc.onerror = () => { qrLib = null; fail(new Error('could not load the QR encoder')); };
+    document.head.appendChild(sc);
+  });
+  return qrLib;
+}
+async function showQr(el, text, note) {
+  try {
+    const qrcode = await loadQr();
+    const q = qrcode(0, 'M'); q.addData(text); q.make();
+    el.innerHTML = `<div class="qr">${q.createSvgTag({ cellSize: 4, margin: 3, scalable: true })}</div>
+      <p><small>${note}</small></p>
+      <p><button class="btn sm ghost" data-a="copy" data-text="${h(text)}" data-what="Link">Copy link instead</button>
+      <button class="btn sm ghost" data-a="hide-qr">Hide</button></p>`;
+  } catch (e) { el.innerHTML = `<p class="down">${h(e.message)}</p>`; }
+}
+const connectLink = cfg => `${appUrl()}#/connect/${cfg.repo}/${cfg.token}${cfg.path !== 'gym.json' ? '/' + cfg.path : ''}`;
+const SECRET_NOTE = '🔒 Contains the token: whoever scans or gets this can edit the log. Don\'t screenshot or share it.';
+
 function copyText(t, what) {
   (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast(`${what} copied`), () => prompt(`Copy the ${what.toLowerCase()}:`, t));
 }
@@ -604,6 +628,9 @@ function vSettings() {
         <small id="syncstatus">${syncStatusHtml()}</small></p>
         <p><button class="btn sm" data-a="sync-now">Sync now</button>
         <button class="btn sm ghost danger" data-a="disconnect">Disconnect</button></p>
+        <p><b>📱 Add another device:</b> <button class="btn sm" data-a="device-qr">Show QR code</button><br>
+        <small>Scan it with the other device's camera to connect it to the same log.</small></p>
+        <div id="qr-out"></div>
         <p><b>Share read-only</b> (e.g. with your trainer):<br><input type="text" readonly value="${h(shareUrl)}" class="note">
         <button class="btn sm" data-a="copy" data-text="${h(shareUrl)}" data-what="Share link">Copy share link</button><br>
         <small>Works for anyone if the repo is public. For a private repo, the viewer needs their own GitHub access to it.</small></p>`
@@ -783,11 +810,16 @@ const actions = {
   'client-link': () => {
     const repo = $('#t-repo').value.trim(), token = $('#t-token').value.trim();
     if (!validRepo(repo) || !/^[A-Za-z0-9_]{20,255}$/.test(token)) { toast('Enter owner/repo and a GitHub token'); return; }
-    const link = `${appUrl()}#/connect/${repo}/${token}`;
+    const link = connectLink({ repo, token, path: 'gym.json' });
     $('#t-out').innerHTML = `<p><input type="text" readonly class="note" value="${h(link)}">
-      <button class="btn sm" data-a="copy" data-text="${h(link)}" data-what="Client link">Copy client link</button><br>
-      <small>Secret: whoever has it can edit this client's log. Send it privately.</small></p>`;
+      <button class="btn sm" data-a="copy" data-text="${h(link)}" data-what="Client link">Copy client link</button>
+      <button class="btn sm ghost" data-a="client-qr" data-text="${h(link)}">Show QR</button><br>
+      <small>Secret: whoever has it can edit this client's log. Send it privately, or let the client scan the QR in person.</small></p>
+      <div id="t-qr"></div>`;
   },
+  'device-qr': () => showQr($('#qr-out'), connectLink(SY.cfg), SECRET_NOTE),
+  'client-qr': b => showQr($('#t-qr'), b.dataset.text, SECRET_NOTE),
+  'hide-qr': b => { b.closest('#qr-out, #t-qr').innerHTML = ''; },
   'view-refresh': () => { location.hash = '#/view/' + repoPath(VIEW); },
   'view-exit': () => { exitView(); go('#/'); },
   'view-copy': () => {

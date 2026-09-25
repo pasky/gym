@@ -19,13 +19,13 @@ The log can live as one JSON file (`gym.json`) in a GitHub repo, written through
 - **Sharing:** *Sync → Copy share link* gives `…/#/view/owner/repo`, a read-only view for anyone if the repo is public. A viewer can also *Copy into my browser* to play with a copy.
 - **Least privilege:** use a *fine-grained token* limited to that one repo with only *Contents: read and write*. It can't touch anything else in the account. The token stays in the browser's localStorage and is never part of the log data or exports.
 
-Setup: create a repo (e.g. `gym-data`) and a token as described in the app under Sync, then paste them in.
+Setup: create a repo (e.g. `gym-data`) and a token as described in the app under Sync, then paste them in on a computer. To add your phone, use *Sync → Add another device → Show QR code* and scan it with the phone's camera. (The QR encoder is `vendor/qrcode.js`, MIT, by Kazuhiko Arase.)
 
 ## For trainers: your own copy for your clients
 
 1. **Fork** this repo and enable **GitHub Pages** (Settings → Pages → Deploy from branch → `main`, `/`). Your copy lives at `https://<you>.github.io/gym/`.
 2. **Customize the exercises** in `catalog.js` (the GitHub web editor is fine): names, muscle groups, default targets, tips, breathing cues, photos in `img/ex/`. Keep `id`s stable once clients use them.
-3. **Per client:** create one **private** repo (e.g. `gym-anna`) and a fine-grained token limited to *that repo* with *Contents: read and write*. In the app, *Sync → Trainer: set up a client* turns them into a link like `…/#/connect/you/gym-anna/<token>`.
+3. **Per client:** create one **private** repo (e.g. `gym-anna`) and a fine-grained token limited to *that repo* with *Contents: read and write*. In the app, *Sync → Trainer: set up a client* turns them into a link like `…/#/connect/you/gym-anna/<token>`, plus a QR code the client can scan in person.
    - **Client side:** the client opens the link once on each device. They need no GitHub account; the app stores the token and removes it from the address bar.
    - **The link is a secret:** it lets whoever has it edit that client's log. Send it privately. If it leaks, revoke the token on GitHub and send a new link.
    - **Token expiry:** when a token expires, sync shows a warning until the client gets a new link. Their local data is unaffected.

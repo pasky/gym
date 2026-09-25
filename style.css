@@ -135,3 +135,5 @@ details li { margin: .3rem 0; }
 .viewbar .btn { margin: .4rem .3rem 0 0; }
 .ro .pick .go, .ro .tools, .ro input.note:placeholder-shown { display: none; }
 .ro .pick { cursor: default; }
+.qr { background: #fff; padding: .5rem; border-radius: 12px; max-width: 280px; margin: .6rem auto 0; }
+.qr svg { display: block; width: 100%; height: auto; }

@@ -319,6 +319,31 @@ try:
         check(len(gh.commits) == n0 + 3, 'idle timeout uploads')
         check(gh.file('pasky/gym-data')['notes']['face-pull']['t'] == 'rope, 2nd hole', 'idle upload content')
 
+        print('== QR code for adding a device')
+        W.goto(BASE + '#/data'); W.click('[data-a=device-qr]'); W.wait_for_selector('.qr svg')
+        jsqr = os.environ.get('JSQR') or '/tmp/jsqr/package/dist/jsQR.js'
+        if not os.path.exists(jsqr):
+            subprocess.run('mkdir -p /tmp/jsqr && cd /tmp/jsqr && npm pack jsqr@1.4.0 >/dev/null 2>&1 && tar xzf jsqr-1.4.0.tgz', shell=True)
+        if os.path.exists(jsqr):
+            W.add_script_tag(path=jsqr)
+            decoded = W.evaluate("""async () => {
+                const svg = document.querySelector('.qr svg'), n = 400;
+                const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+                await img.decode();
+                const c = document.createElement('canvas'); c.width = c.height = n;
+                const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, n, n); x.drawImage(img, 0, 0, n, n);
+                const r = jsQR(x.getImageData(0, 0, n, n).data, n, n);
+                return r && r.data;
+            }""")
+            check(decoded == f'{BASE}#/connect/pasky/gym-data/{TOK}', f'QR decodes to the connect link ({decoded and decoded[:50]}…)')
+            Q = device(browser, 'Q'); Q.goto(decoded); check(sync(Q) is None and len(state(Q)['sessions']) > 0, 'scanned link connects a new device')
+        else:
+            print('skip  QR decode (jsQR unavailable)')
+        W.click('[data-a=hide-qr]'); check(W.locator('.qr').count() == 0, 'QR can be hidden')
+        W.goto(BASE + '#/data'); W.click('text=Give a client sync'); W.fill('#t-repo', 'coach/gym-anna'); W.fill('#t-token', TOK_ANNA)
+        W.click('[data-a=client-link]'); W.click('[data-a=client-qr]'); W.wait_for_selector('#t-qr .qr svg')
+        check(True, 'client link QR shown'); W.screenshot(path='/tmp/gym-qr.png')
+
         print('commits:', len(gh.commits), set(m for _, m in gh.commits))
         browser.close()
 finally:
