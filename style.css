@@ -11,7 +11,9 @@ h1 { font-size: 1.4rem; margin: .6rem 0 .2rem; }
 h2 { font-size: 1.05rem; margin: 1.4rem 0 .5rem; color: var(--g); text-transform: uppercase; letter-spacing: .04em; }
 small, .muted { color: var(--mut); }
 #top { background: var(--g); padding: .7rem 1rem; padding-top: calc(.7rem + env(safe-area-inset-top)); position: sticky; top: 0; z-index: 5; }
+#top { display: flex; justify-content: space-between; align-items: center; }
 #top a { color: #fff; font-weight: 700; font-size: 1.1rem; }
+#syncst { font-size: .9rem !important; font-weight: 500 !important; }
 main { max-width: 640px; margin: 0 auto; padding: .5rem .8rem; }
 .card { display: block; background: var(--card); border-radius: 14px; padding: .8rem; margin: .6rem 0;
   box-shadow: 0 1px 3px rgba(0,0,0,.08); color: inherit; }
@@ -123,3 +125,13 @@ label { display: block; }
 .tips ul { margin: 0; padding-left: 1rem; }
 .tips li { margin: .1rem 0; }
 .tips .breath { color: #1d4f7a; font-weight: 600; margin-bottom: .25rem; }
+
+/* sync & view mode */
+h3 { margin: 0 0 .4rem; font-size: 1.05rem; }
+details summary { cursor: pointer; color: var(--g2); margin: .3rem 0; }
+details ol { padding-left: 1.2rem; font-size: .92rem; }
+details li { margin: .3rem 0; }
+.viewbar { background: #e3ebfb; border-left: 4px solid var(--ss); }
+.viewbar .btn { margin: .4rem .3rem 0 0; }
+.ro .pick .go, .ro .tools, .ro input.note:placeholder-shown { display: none; }
+.ro .pick { cursor: default; }

@@ -57,7 +57,7 @@ try:
             pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
         pg.click('[data-a=finish]')
         print('targets:', state(pg)['targets'])
-        assert state(pg)['targets'] == {'goblet-step-up': {'load': 8}}
+        tg = state(pg)['targets']; assert tg['goblet-step-up']['load'] == 8 and set(tg) == {'goblet-step-up'}, tg
 
         # superset rest: partner added after its sets are done must not suppress rest on the other
         pg.goto(URL); pg.click('[data-a=pick][data-ex=face-pull]'); pg.wait_for_selector('#item-0')

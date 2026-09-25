@@ -1,5 +1,6 @@
 'use strict';
-// Gym log: all state in localStorage (see store below). Exercises and plans come from catalog.js.
+// Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
+// Exercises come from catalog.js.
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -25,7 +26,7 @@ const store = {
     catch (e) { alert('Could not save to browser storage!\n' + e); }
   },
 };
-function emptyState() { return { v: 2, sessions: [], active: null, targets: {}, targetLog: [], notes: {} }; }
+function emptyState() { return { v: 3, sessions: [], active: null, targets: {}, targetLog: [], notes: {}, deleted: {} }; }
 function migrate(s) {
   if ((s.v || 1) < 2) { // v1 keyed targets by `${planId}:${exId}`; v2 keys by exercise id
     const strip = k => k.includes(':') ? k.split(':')[1] : k;
@@ -33,21 +34,49 @@ function migrate(s) {
     (s.targetLog || []).forEach(l => { l.ex = strip(l.key || ''); delete l.key; });
     s.v = 2;
   }
+  if (s.v < 3) { // v3: modification times for merging (sessions.u, targets[].u, notes {t, u}), tombstones
+    s.notes = Object.fromEntries(Object.entries(s.notes || {}).map(([k, v]) => [k, typeof v === 'string' ? { t: v, u: 0 } : v]));
+    s.v = 3;
+  }
+  s.deleted ||= {};
   delete s.draft;
   return s;
 }
 let S = store.load();
-const save = () => store.save(S);
+let VIEW = null;   // read-only view of someone else's log: { repo, path, at }; S then holds their data
+
+// Sessions get `u` (last modified) bumped automatically: save() diffs them against the last snapshot.
+let snap = new Map();
+const sessJSON = x => JSON.stringify({ ...x, u: 0 });
+function resnap() { snap = new Map(S.sessions.map(x => [x.id, sessJSON(x)])); }
+resnap();
+function save() {
+  if (VIEW) return;
+  const now = Date.now();
+  for (const x of S.sessions) {
+    const j = sessJSON(x);
+    if (snap.get(x.id) !== j) { x.u = now; snap.set(x.id, j); }
+  }
+  store.save(S);
+  scheduleSync();
+}
+function deleteSession(x) {
+  S.sessions = S.sessions.filter(y => y !== x);
+  S.deleted[x.id] = Date.now();
+  if (S.active === x.id) S.active = null;
+}
 
 // ---------- catalog access ----------
 const EX = Object.fromEntries(CATALOG.exercises.map(e => [e.id, e]));
 const exOf = id => EX[id] || { id, name: id + ' (removed)', primary: [], secondary: [], tips: [], kind: 'reps', loadType: 'kg', step: 2.5 };
 const groupName = id => CATALOG.groups.find(g => g.id === id)?.name || 'Other';
-const targetOf = exId => ({ sets: 3, reps: 10, load: null, rest: 90, ...(EX[exId]?.target || {}), ...(S.targets[exId] || {}) });
+const targetOf = exId => { const { u, ...o } = S.targets[exId] || {}; return { sets: 3, reps: 10, load: null, rest: 90, ...(EX[exId]?.target || {}), ...o }; };
+const hasOverride = exId => Object.keys(S.targets[exId] || {}).some(k => k !== 'u');
+const noteOf = exId => S.notes[exId]?.t || '';
 function setTarget(exId, k, v) {
   const cur = targetOf(exId);
   if (cur[k] === v) return;
-  S.targets[exId] = { ...(S.targets[exId] || {}), [k]: v };
+  S.targets[exId] = { ...(S.targets[exId] || {}), [k]: v, u: Date.now() };
   S.targetLog.push({ t: Date.now(), ex: exId, k, from: cur[k], to: v });
 }
 // exercises bucketed by muscle group, in catalog order
@@ -64,12 +93,12 @@ const sess = id => S.sessions.find(s => s.id === id);
 
 // ---------- stats ----------
 const doneSets = it => it.sets.filter(x => x.done);
-function history(exId, exceptSid) {
+function exHistory(exId, exceptSid) {
   return S.sessions.filter(s => s.end && s.id !== exceptSid).sort((a, b) => a.start - b.start)
     .flatMap(s => s.items.filter(i => i.ex === exId).map(i => ({ s, it: i, sets: doneSets(i) })))
     .filter(x => x.sets.length);
 }
-const lastPerf = (exId, exceptSid) => history(exId, exceptSid).at(-1);
+const lastPerf = (exId, exceptSid) => exHistory(exId, exceptSid).at(-1);
 function fmtSets(sets, ex) {
   // group consecutive sets with the same weight: "6 kg × 8, 8 · 8 kg × 7"
   const unit = ex.kind === 'hold' ? 's' : '';
@@ -198,6 +227,133 @@ async function wantWake(on) {
   } catch (e) { /* ignore */ }
 }
 
+// ---------- sync (GitHub repo, see sync.js) ----------
+const SYNC_KEY = 'gym.sync', VIEW_KEY = 'gym.view', VTOKEN_KEY = 'gym.viewtoken';
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
+// cfg: { repo, path, token, sha?, last? } (device-local: never exported or synced)
+const SY = { cfg: lsGet(SYNC_KEY), busy: false, err: null, again: false, timer: null };
+const syncCfgSave = () => lsSet(SYNC_KEY, SY.cfg);
+const normalize = data => { const x = migrate(Object.assign(emptyState(), { v: 1 }, JSON.parse(JSON.stringify(data)))); x.active = null; return x; };
+const appUrl = () => location.origin + location.pathname;
+const repoPath = cfg => cfg.repo + (cfg.path !== 'gym.json' ? '/' + cfg.path : '');
+function device() {
+  let d = lsGet('gym.device');
+  if (!d) {
+    const ua = navigator.userAgent;
+    d = (/Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) ? 'ios' : /Mac/.test(ua) ? 'mac' : /Win/.test(ua) ? 'windows' : /Linux/.test(ua) ? 'linux' : 'device')
+      + '-' + Math.random().toString(36).slice(2, 6);
+    lsSet('gym.device', d);
+  }
+  return d;
+}
+function scheduleSync(ms = 20000) {
+  if (!SY.cfg || VIEW) return;
+  clearTimeout(SY.timer);
+  SY.timer = setTimeout(syncNow, ms);
+}
+function applyMerged(merged) {
+  const before = canon(syncPart(S));
+  const active = S.active;
+  S = merged;
+  S.active = active && sess(active) ? active : null;
+  resnap();
+  store.save(S);
+  if (canon(syncPart(S)) !== before && !document.activeElement?.matches('input,textarea')) rerender();
+}
+// pull, merge, push; retried on concurrent writes (GitHub rejects writes based on a stale sha)
+async function syncNow() {
+  if (!SY.cfg || VIEW) return;
+  if (SY.busy) { SY.again = true; return; }
+  clearTimeout(SY.timer);
+  SY.busy = true; syncBadge();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      if (attempt > 4) throw new SyncError('The log keeps changing elsewhere; will retry', 0);
+      const remote = await ghRead(SY.cfg);
+      const rs = remote && normalize(remote.data);
+      applyMerged(rs ? mergeStates(S, rs) : S);
+      if (rs && canon(syncPart(S)) === canon(syncPart(rs))) { SY.cfg.sha = remote.sha; break; }
+      const w = await ghWrite(SY.cfg, syncPart(S), remote?.sha, `gym: sync from ${device()}`);
+      if (w.conflict) continue;
+      SY.cfg.sha = w.sha;
+      break;
+    }
+    SY.cfg.last = Date.now(); SY.err = null;
+  } catch (e) {
+    SY.err = e.message || String(e);
+    if (![401, 403, 404].includes(e.status)) scheduleSync(60000);   // transient: retry later
+  } finally {
+    SY.busy = false;
+    if (SY.cfg) syncCfgSave();
+    syncBadge();
+    if (SY.again) { SY.again = false; scheduleSync(1000); }
+  }
+}
+function syncBadge() {
+  const el = $('#syncst');
+  if (!el) return;
+  el.textContent = VIEW ? '👀' : !SY.cfg ? '' : SY.busy ? '⟳' : SY.err ? '⚠️ sync' : '☁️';
+  el.title = VIEW ? `Viewing ${VIEW.repo}` : !SY.cfg ? '' : SY.err ? SY.err : `Synced ${SY.cfg.last ? fmtT(SY.cfg.last) : ''}`;
+  if ((location.hash || '').startsWith('#/data') && !document.activeElement?.matches('input,textarea')) { const st = $('#syncstatus'); if (st) st.innerHTML = syncStatusHtml(); }
+}
+function syncStatusHtml() {
+  if (!SY.cfg) return '';
+  return SY.busy ? 'Syncing…' : SY.err ? `<span class="down">⚠️ ${h(SY.err)}</span>` : SY.cfg.last ? `Last synced ${fmtD(SY.cfg.last)} ${fmtT(SY.cfg.last)} ✓` : 'Not synced yet';
+}
+// #/connect/<owner>/<repo>/<token>[/<path>]: a link from the trainer (or yourself) to set up sync
+function connectFromHash(parts) {
+  const [owner = '', repo = '', token = '', ...pp] = parts.map(decodeURIComponent);
+  history.replaceState(null, '', location.pathname + location.search + '#/data');   // drop the token from the URL
+  connectTo({ repo: `${owner}/${repo}`, token, path: pp.join('/') || 'gym.json' });
+}
+function connectTo(cfg) {
+  if (!validRepo(cfg.repo) || !validPath(cfg.path) || !/^[A-Za-z0-9_]{20,255}$/.test(cfg.token)) { render(); toast('Invalid repo, file or token'); return; }
+  if (SY.cfg && (SY.cfg.repo !== cfg.repo || SY.cfg.path !== cfg.path)
+    && !confirm(`This browser syncs with ${repoPath(SY.cfg)}. Switch to ${repoPath(cfg)}?\nThe log in this browser will be merged into it.`)) { render(); return; }
+  SY.cfg = cfg; SY.err = null; syncCfgSave();
+  render();
+  toast('Connecting…');
+  syncNow().then(() => toast(SY.err ? 'Sync failed: ' + SY.err : 'Connected and synced ✓'));
+}
+// #/view/<owner>/<repo>[/<path>]: read-only view of someone's log
+async function enterView(parts) {
+  const [owner = '', repo = '', ...pp] = parts.map(decodeURIComponent);
+  const cfg = { repo: `${owner}/${repo}`, path: pp.join('/') || 'gym.json' };
+  const main = $('#main');
+  if (!validRepo(cfg.repo) || !validPath(cfg.path)) { main.innerHTML = '<div class="card warn">Invalid view link.</div>'; return; }
+  main.innerHTML = `<p class="muted">Loading ${h(repoPath(cfg))}…</p>`;
+  try {
+    let r;
+    try { r = await ghRead(cfg); }
+    catch (e) {   // private repo? try this browser's tokens
+      const tk = lsGet(VTOKEN_KEY) || (SY.cfg?.repo === cfg.repo ? SY.cfg.token : null);
+      if (e.status === 404 && tk) r = await ghRead({ ...cfg, token: tk }); else throw e;
+    }
+    if (!r) throw new Error('there is no gym log in that repo yet');
+    VIEW = { repo: cfg.repo, path: cfg.path, at: Date.now() };
+    try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ ...VIEW, data: r.data })); } catch (e) { /* ignore */ }
+    S = normalize(r.data);
+    rest = null; tickRest();
+    location.replace('#/');
+  } catch (e) {
+    main.innerHTML = `<div class="card warn"><b>Could not load ${h(repoPath(cfg))}</b><p>${h(e.message)}</p>
+      <p><small>If it's a private repo, add a GitHub token with read access under Data → View someone's log.</small></p></div><p><a href="#/">Back</a></p>`;
+  }
+}
+function exitView() {
+  try { sessionStorage.removeItem(VIEW_KEY); } catch (e) { /* ignore */ }
+  VIEW = null; S = store.load(); resnap();
+}
+(function restoreView() {   // a reload keeps the view (per tab)
+  let v = null;
+  try { v = JSON.parse(sessionStorage.getItem(VIEW_KEY)); } catch (e) { /* ignore */ }
+  if (v && v.data) { VIEW = { repo: v.repo, path: v.path, at: v.at }; S = normalize(v.data); }
+})();
+function copyText(t, what) {
+  (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast(`${what} copied`), () => prompt(`Copy the ${what.toLowerCase()}:`, t));
+}
+
 // ---------- views ----------
 const chips = arr => arr.map(m => `<span class="chip">${h(m)}</span>`).join('');
 function targetText(ex, t) {
@@ -209,18 +365,19 @@ function targetText(ex, t) {
 
 function vHome() {
   const a = S.active && sess(S.active);
-  const past = S.sessions.filter(s => s.end).sort((x, y) => y.start - x.start);
+  const past = S.sessions.filter(s => s.end || VIEW).sort((x, y) => y.start - x.start);
   let o = '';
   if (a) {
     const all = a.items.flatMap(i => i.sets), d = all.filter(x => x.done).length;
     o += `<a class="card active" href="#/s/${a.id}"><div class="row"><div><b>${h(sessName(a))}</b> in progress<br>
       <small>started ${fmtT(a.start)} · ${d}/${all.length} sets</small></div><span class="btn">Resume ›</span></div></a>`;
-  } else o += `<h2>Pick an exercise to start a visit</h2>` + vPicker(null);
-  o += `<h2>Past visits</h2>`;
+  } else if (!VIEW) o += `<h2>Pick an exercise to start a visit</h2>` + vPicker(null);
+  o += `<h2>${VIEW ? 'Visits' : 'Past visits'}</h2>`;
   o += past.length ? `<div class="list">${past.slice(0, 30).map(s => {
     const n = s.items.reduce((a, i) => a + doneSets(i).length, 0);
-    return `<a href="#/s/${s.id}"><span>${fmtD(s.start)}</span><b>${h(sessName(s))}</b><small>${n} sets · ${dur(s.end - s.start)}</small></a>`;
+    return `<a href="#/s/${s.id}"><span>${fmtD(s.start)}</span><b>${h(sessName(s))}</b><small>${n} sets · ${s.end ? dur(s.end - s.start) : 'in progress'}</small></a>`;
   }).join('')}</div>` : '<p class="muted">Nothing yet.</p>';
+  if (VIEW) o += `<h2>Muscle groups</h2>` + vPicker(null);
   return o;
 }
 
@@ -247,21 +404,21 @@ function vPicker(s) {
 function vSession(id) {
   const s = sess(id);
   if (!s) return '<p>Session not found.</p>';
-  const live = !s.end;
+  const live = !s.end && !VIEW;
   let o = `<div class="shead"><h1>${h(sessName(s))}</h1><small>${fmtD(s.start)} · ${fmtT(s.start)}${s.end ? '–' + fmtT(s.end) + ' · ' + dur(s.end - s.start) : ' · <span id="elapsed"></span>'}</small></div>`;
   s.items.forEach((it, i) => { o += itemCard(s, it, i); });
   if (!s.items.length) o += '<p class="muted">Pick your first exercise below.</p>';
   if (live) o += `<h2>${s.items.length ? 'Next exercise' : 'Exercises'}</h2>` + vPicker(s);
-  else o += `<div class="card"><label>Add a forgotten exercise ${exSelect('addex')}</label></div>`;
+  else if (!VIEW) o += `<div class="card"><label>Add a forgotten exercise ${exSelect('addex')}</label></div>`;
   o += `<div class="card"><label>Session notes<textarea data-f="snote" rows="2" placeholder="How did it feel? Energy, sleep, pain…">${h(s.note)}</textarea></label></div>`;
   o += live
     ? `<p><button class="btn big" data-a="finish">Finish visit</button></p><p><button class="btn ghost danger" data-a="del">Discard session</button></p>`
-    : `<p><button class="btn ghost danger" data-a="del">Delete session</button></p>`;
+    : VIEW ? '' : `<p><button class="btn ghost danger" data-a="del">Delete session</button></p>`;
   return o;
 }
 
 function itemCard(s, it, i) {
-  const ex = exOf(it.ex), t = it.target, live = !s.end;
+  const ex = exOf(it.ex), t = it.target, live = !s.end && !VIEW;
   const prev = s.items[i - 1], next = s.items[i + 1];
   const inSS = it.ss && (prev?.ss === it.ss || next?.ss === it.ss);
   const ssTag = inSS ? `<span class="chip ss">Superset ${prev?.ss === it.ss ? 'B' : 'A'}</span>` : '';
@@ -271,7 +428,7 @@ function itemCard(s, it, i) {
   if (live && lp && hitTarget(lp.sets, t)) {
     sug = `<div class="sug">📈 Last time you hit all ${t.sets}×${t.reps}. Time to progress?
       ${progressOptions(ex, t, lp.sets).map(op => `<button class="btn sm" data-a="apply" data-i="${i}" data-k="${op.k}" data-v="${op.v}">${op.label}</button>`).join('')}</div>`;
-  } else if (!live && pi && doneSets(it).length && hitTarget(doneSets(it), pi)) {
+  } else if (!live && !VIEW && pi && doneSets(it).length && hitTarget(doneSets(it), pi)) {
     sug = `<div class="sug">✅ All targets hit. Raise the target for next time?
       ${progressOptions(ex, pi, doneSets(it)).map(op => `<button class="btn sm" data-a="apply" data-i="${i}" data-k="${op.k}" data-v="${op.v}">${op.label}</button>`).join('')}</div>`;
   }
@@ -294,7 +451,7 @@ function itemCard(s, it, i) {
     ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
       ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
-    ${S.notes[ex.id] ? `<div class="last">📝 ${h(S.notes[ex.id])}</div>` : ''}
+    ${noteOf(ex.id) ? `<div class="last">📝 ${h(noteOf(ex.id))}</div>` : ''}
     ${sug}${ssHint}
     <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
     <div class="row tools">
@@ -326,7 +483,7 @@ function chart(pts, unit) {
 function vExercise(id) {
   const ex = EX[id];
   if (!ex) return '<p>Unknown exercise.</p>';
-  const hist = history(id);
+  const hist = exHistory(id);
   const m = hist.length ? metricKind(hist.flatMap(x => x.sets)) : null;
   if (m && ex.kind === 'hold') m.label = 'Total seconds';
   const pts = hist.map(x => ({ t: x.s.start, v: metricOf(x.sets, m) }));
@@ -341,7 +498,7 @@ function vExercise(id) {
     ${ex.breath ? `<div class="card"><b>🫁 Breathing</b><p>${h(ex.breath)}</p>
       <p><small>Rule of thumb: breathe out on the effort, in on the way back. Never hold your breath through a rep. If you lose the rhythm, slow the rep down to match your breath.</small></p></div>` : ''}
     ${ex.tips?.length ? `<div class="card"><b>Coaching tips</b><ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul></div>` : ''}
-    <div class="card"><label><b>My notes</b><textarea data-f="exnote" data-ex="${id}" rows="2" placeholder="Machine settings, seat height, what to watch…">${h(S.notes[id] || '')}</textarea></label></div>
+    <div class="card"><label><b>My notes</b><textarea data-f="exnote" data-ex="${id}" rows="2" placeholder="Machine settings, seat height, what to watch…">${h(noteOf(id))}</textarea></label></div>
     <h2>Progress</h2>
     ${m ? `<div class="card"><b>${m.label}${m.unit ? ` (${m.unit})` : ''}</b>${chart(pts, m.unit)}
       ${m.unit === 'kg' ? `<b>Volume (kg × reps)</b>${chart(vol, 'kg')}` : ''}</div>
@@ -350,7 +507,7 @@ function vExercise(id) {
 }
 
 function vProgress() {
-  const rows = CATALOG.exercises.map(ex => ({ ex, hist: history(ex.id) })).filter(r => r.hist.length)
+  const rows = CATALOG.exercises.map(ex => ({ ex, hist: exHistory(ex.id) })).filter(r => r.hist.length)
     .sort((a, b) => b.hist.at(-1).s.start - a.hist.at(-1).s.start);
   const visits = S.sessions.filter(s => s.end);
   const weekAgo = Date.now() - 7 * 864e5, monthAgo = Date.now() - 30 * 864e5;
@@ -395,19 +552,60 @@ function vTargets() {
       const t = targetOf(ex.id);
       const f = (k, label, v) => `<label><small>${label}</small><input type="text" inputmode="decimal" data-f="target" data-ex="${ex.id}" data-k="${k}" value="${v ?? ''}" placeholder="–"></label>`;
       return `<div class="card" id="t-${ex.id}"><div class="row"><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a>
-        ${S.targets[ex.id] ? `<button class="btn sm ghost" data-a="resettarget" data-ex="${ex.id}">reset to trainer's</button>` : ''}</div>
+        ${hasOverride(ex.id) ? `<button class="btn sm ghost" data-a="resettarget" data-ex="${ex.id}">reset to trainer's</button>` : ''}</div>
         <div class="tgrid">${f('sets', 'sets', t.sets)}${f('reps', ex.kind === 'hold' ? 'seconds' : (ex.perSide ? 'reps/side' : 'reps'), t.reps)}${f('load', 'kg', fmtN(t.load))}${f('rest', 'rest s', t.rest)}</div></div>`;
     }).join('')}`).join('')}
     ${log.length ? `<h2>Target changes</h2><div class="list">${log.map(l => `<div><span>${fmtD(l.t)}</span><b>${h(exOf(l.ex).name)}</b><small>${h(l.k)}: ${fmtN(l.from) || '–'} → ${fmtN(l.to) || '–'}</small></div>`).join('')}</div>` : ''}`;
 }
 
+const TOKEN_HELP = `<li>Create a <b>fine-grained token</b> at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>:
+      Repository access → <i>Only select repositories</i> → just that repo; Permissions → Repository → <i>Contents: Read and write</i>. Nothing else.
+      Pick an expiration (when it expires, sync stops until you paste a new token).</li>`;
+
 function vSettings() {
-  const bytes = JSON.stringify(S).length;
-  return `<h1>Data</h1>
-    <div class="card"><p>Everything is stored in this browser only (${(bytes / 1024).toFixed(1)} kB). Export a backup now and then!</p>
-      <p><button class="btn" data-a="export">Export backup (JSON)</button></p>
-      <p><label class="btn ghost">Import backup<input type="file" accept="application/json,.json" id="import" hidden></label></p></div>
-    <div class="card"><p><button class="btn ghost danger" data-a="reset">Erase all data</button></p></div>
+  if (VIEW) return `<h1>Data</h1><p class="muted">You're viewing someone else's log. Exit the view (banner above) to get back to your own data and sync settings.</p>`;
+  const bytes = JSON.stringify(S).length, c = SY.cfg;
+  const shareUrl = c ? `${appUrl()}#/view/${repoPath(c)}` : '';
+  return `<h1>Data & sync</h1>
+    <div class="card"><h3>☁️ Sync</h3>
+    ${c ? `<p>Syncing with <a href="https://github.com/${h(c.repo)}/blob/HEAD/${h(c.path)}" target="_blank" rel="noopener">${h(repoPath(c))}</a> on GitHub.<br>
+        <small id="syncstatus">${syncStatusHtml()}</small></p>
+        <p><button class="btn sm" data-a="sync-now">Sync now</button>
+        <button class="btn sm ghost danger" data-a="disconnect">Disconnect</button></p>
+        <p><b>Share read-only</b> (e.g. with your trainer):<br><input type="text" readonly value="${h(shareUrl)}" class="note">
+        <button class="btn sm" data-a="copy" data-text="${h(shareUrl)}" data-what="Share link">Copy share link</button><br>
+        <small>Works for anyone if the repo is public. For a private repo, the viewer needs their own GitHub access to it.</small></p>`
+      : `<p>Keep your log in a GitHub repo: syncs between your devices, keeps full history, and lets you share a read-only link (e.g. with your trainer).
+        <b>Got a link from your trainer?</b> Just open it on this device.</p>
+        <details><summary>Set it up yourself (≈2 min, needs a GitHub account)</summary><ol>
+          <li>Create a repo, e.g. <i>gym-data</i> at <a href="https://github.com/new" target="_blank" rel="noopener">github.com/new</a>: <b>public</b> to share without logins, <b>private</b> otherwise.</li>
+          ${TOKEN_HELP}
+          <li>Fill in:</li></ol>
+          <label>Repo <input id="c-repo" class="note" placeholder="yourname/gym-data" autocapitalize="off" autocomplete="off"></label>
+          <label>Token <input id="c-token" class="note" type="password" placeholder="github_pat_…" autocomplete="off"></label>
+          <label>File <input id="c-path" class="note" value="gym.json" autocapitalize="off"></label>
+          <p><button class="btn" data-a="connect-form">Connect</button></p></details>`}
+    </div>
+    <div class="card"><h3>👀 View someone's log</h3>
+      <label><input id="v-repo" class="note" placeholder="share link, or owner/repo" autocapitalize="off"></label>
+      <p><button class="btn sm" data-a="view-open">Open read-only</button></p>
+      <details><summary><small>Private repos</small></summary>
+        <label><small>GitHub token with read access (e.g. a trainer's token covering all client repos). Stored in this browser.</small>
+        <input id="v-token" class="note" type="password" placeholder="${lsGet(VTOKEN_KEY) ? '(saved; paste to replace, clear to remove)' : 'github_pat_…'}" autocomplete="off"></label>
+        <p><button class="btn sm ghost" data-a="vtoken-save">Save viewing token</button></p></details></div>
+    <div class="card"><h3>🏋️ Trainer: set up a client</h3>
+      <details><summary>Give a client sync without them needing GitHub</summary><ol>
+        <li>Create one <b>private</b> repo per client, e.g. <i>gym-anna</i>, at <a href="https://github.com/new" target="_blank" rel="noopener">github.com/new</a>.</li>
+        ${TOKEN_HELP.replace('just that repo', "just that client's repo")}
+        <li>Generate the client's link here and send it privately (anyone with it can edit that client's log). They open it once on each device.</li></ol>
+        <label>Client repo <input id="t-repo" class="note" placeholder="you/gym-anna" autocapitalize="off" autocomplete="off"></label>
+        <label>Token <input id="t-token" class="note" type="password" placeholder="github_pat_…" autocomplete="off"></label>
+        <p><button class="btn sm" data-a="client-link">Make link</button></p>
+        <div id="t-out"></div></details></div>
+    <div class="card"><h3>💾 Backup</h3><p><small>This browser holds ${(bytes / 1024).toFixed(1)} kB of log data.</small></p>
+      <p><button class="btn sm" data-a="export">Export backup (JSON)</button>
+      <label class="btn sm ghost">Import backup<input type="file" accept="application/json,.json" id="import" hidden></label></p>
+      <p><button class="btn sm ghost danger" data-a="reset">Erase all data in this browser</button></p></div>
     <h2>Trainer sheets</h2>
     ${CATALOG.plans.filter(p => p.sheet).map(p => `<a href="${h(p.sheet)}" target="_blank"><img class="hero" src="${h(p.sheet)}" alt="${h(p.name)}"></a>`).join('')}`;
 }
@@ -423,13 +621,16 @@ function validateBackup(d) {
       if (!it.sets.every(isObj)) bad('bad set');
     }
   }
-  for (const k of ['targets', 'notes']) if (d[k] != null && !isObj(d[k])) bad(k);
+  for (const k of ['targets', 'notes', 'deleted']) if (d[k] != null && !isObj(d[k])) bad(k);
   if (d.targetLog != null && !Array.isArray(d.targetLog)) bad('targetLog');
 }
 
 // ---------- router ----------
 let elapsedIv, pendingScroll = null;
 function render() {
+  const parts = (location.hash || '#/').slice(2).split('/');
+  if (parts[0] === 'connect') { connectFromHash(parts.slice(1)); return; }
+  if (parts[0] === 'view') { enterView(parts.slice(1)); return; }
   const [, route, arg] = (location.hash || '#/').split('/');
   const main = $('#main');
   let html, sid = null;
@@ -440,13 +641,20 @@ function render() {
   else if (route === 'data') html = vSettings();
   else html = vHome();
   main.dataset.sid = sid || '';
+  if (VIEW) html = `<div class="card viewbar">👀 Viewing <b>${h(repoPath(VIEW))}</b> (read-only)<br><small>loaded ${fmtT(VIEW.at)}</small>
+    <div><button class="btn sm" data-a="view-refresh" data-ro>Refresh</button>
+    <button class="btn sm ghost" data-a="view-copy" data-ro>Copy into my browser</button>
+    <button class="btn sm ghost" data-a="view-exit" data-ro>Exit</button></div></div>` + html;
   main.innerHTML = html;
+  document.body.classList.toggle('ro', !!VIEW);
+  if (VIEW) main.querySelectorAll('input, textarea, select, button').forEach(el => { if (!el.hasAttribute('data-ro')) el.disabled = true; });
+  syncBadge();
   if (route === 'targets' && arg) document.getElementById('t-' + arg)?.scrollIntoView();
   if (pendingScroll) { document.getElementById(pendingScroll)?.scrollIntoView({ block: 'start' }); pendingScroll = null; }
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#/' + (route || '')));
   $('#nav .dot').hidden = !S.active;
   const s = sid && sess(sid);
-  wantWake(!!(s && !s.end));
+  wantWake(!!(s && !s.end && !VIEW));
   clearInterval(elapsedIv);
   if (s && !s.end) {
     const upd = () => { const e = $('#elapsed'); if (e) e.textContent = dur(Date.now() - s.start); };
@@ -507,23 +715,59 @@ const actions = {
     const s = cur();
     if (!s.items.some(i => doneSets(i).length)) {
       if (confirm('Nothing logged in this visit. Discard it?')) {
-        S.sessions = S.sessions.filter(x => x !== s); S.active = null; rest = null; tickRest(); save(); go('#/');
+        deleteSession(s); rest = null; tickRest(); save(); go('#/');
       }
       return;
     }
     const open = s.items.flatMap(i => i.sets).filter(x => !x.done).length;
     if (open && !confirm(`${open} set(s) not ticked. They won't count. Finish anyway?`)) return;
     s.end = Date.now(); S.active = null; rest = null; tickRest();
-    save(); scrollTo(0, 0); render(); toast('Visit saved. Nice work!');
+    save(); syncNow(); scrollTo(0, 0); render(); toast('Visit saved. Nice work!');
   },
   del: () => {
     const s = cur();
     if (!confirm('Delete this session permanently?')) return;
-    S.sessions = S.sessions.filter(x => x !== s);
-    if (S.active === s.id) { S.active = null; rest = null; tickRest(); }
+    if (S.active === s.id) { rest = null; tickRest(); }
+    deleteSession(s);
     save(); go('#/');
   },
-  resettarget: b => { delete S.targets[b.dataset.ex]; save(); rerender(); },
+  'sync-now': () => { SY.err = null; syncNow(); },
+  disconnect: () => {
+    if (!confirm(`Stop syncing with ${repoPath(SY.cfg)}? Your data stays in this browser and on GitHub.`)) return;
+    clearTimeout(SY.timer); SY.cfg = null; SY.err = null; syncCfgSave(); render();
+  },
+  'connect-form': () => connectTo({ repo: $('#c-repo').value.trim(), token: $('#c-token').value.trim(), path: $('#c-path').value.trim() || 'gym.json' }),
+  copy: b => copyText(b.dataset.text, b.dataset.what),
+  'view-open': () => {
+    const v = $('#v-repo').value.trim(), m = v.match(/#\/view\/(.+)$/);
+    const rp = (m ? m[1] : v.replace(/^https:\/\/github\.com\//, '')).replace(/\/+$/, '');
+    location.hash = '#/view/' + rp;
+  },
+  'vtoken-save': () => {
+    const t = $('#v-token').value.trim();
+    if (t && !/^[A-Za-z0-9_]{20,255}$/.test(t)) { toast("That doesn't look like a GitHub token"); return; }
+    lsSet(VTOKEN_KEY, t || null); toast(t ? 'Viewing token saved' : 'Viewing token removed'); render();
+  },
+  'client-link': () => {
+    const repo = $('#t-repo').value.trim(), token = $('#t-token').value.trim();
+    if (!validRepo(repo) || !/^[A-Za-z0-9_]{20,255}$/.test(token)) { toast('Enter owner/repo and a GitHub token'); return; }
+    const link = `${appUrl()}#/connect/${repo}/${token}`;
+    $('#t-out').innerHTML = `<p><input type="text" readonly class="note" value="${h(link)}">
+      <button class="btn sm" data-a="copy" data-text="${h(link)}" data-what="Client link">Copy client link</button><br>
+      <small>Secret: whoever has it can edit this client's log. Send it privately.</small></p>`;
+  },
+  'view-refresh': () => { location.hash = '#/view/' + repoPath(VIEW); },
+  'view-exit': () => { exitView(); go('#/'); },
+  'view-copy': () => {
+    const who = repoPath(VIEW);
+    if (!confirm(SY.cfg ? `Replace this browser's own log with a copy of ${who}?\nThis browser syncs with ${repoPath(SY.cfg)}, so the copy will be merged into that log.`
+      : `Replace this browser's own log with a copy of ${who}?\n(Export a backup first if you need your current data.)`)) return;
+    const copy = normalize(syncPart(S));
+    exitView();
+    S = copy; S.active = null; resnap(); store.save(S); scheduleSync(1000);
+    go('#/'); toast(`Copied ${who} into this browser`);
+  },
+  resettarget: b => { S.targets[b.dataset.ex] = { u: Date.now() }; save(); rerender(); },
   'rest-add': () => { if (rest) { rest.end += 15000; rest.total += 15; tickRest(); } },
   'rest-skip': () => { rest = null; tickRest(); },
   export: () => {
@@ -534,7 +778,7 @@ const actions = {
   },
   reset: () => {
     if (confirm('Erase ALL sessions and settings from this browser?') && confirm('Really? This cannot be undone.')) {
-      try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ } S = store.load(); go('#/');
+      try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ } S = store.load(); resnap(); go('#/');
     }
   },
 };
@@ -550,7 +794,7 @@ document.addEventListener('input', e => {
     x[el.dataset.k] = num(el.value);
   } else if (f === 'inote') cur().items[+el.dataset.i].note = el.value;
   else if (f === 'snote') cur().note = el.value;
-  else if (f === 'exnote') { if (el.value.trim()) S.notes[el.dataset.ex] = el.value; else delete S.notes[el.dataset.ex]; }
+  else if (f === 'exnote') S.notes[el.dataset.ex] = { t: el.value, u: Date.now() };
   else return;
   save();
 });
@@ -574,14 +818,20 @@ document.addEventListener('change', e => {
       S = migrate(Object.assign(emptyState(), { v: 1 }, d));
       if (S.active && typeof S.active !== 'string') S.active = null;
       if (S.active && !sess(S.active)) S.active = null;
-      save(); go('#/');
+      resnap(); save(); go('#/');
       toast('Backup imported');
     }).catch(err => alert('Import failed: ' + err.message));
   }
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { tickRest(); if (!document.activeElement?.matches('input,textarea')) rerender(); }
+  if (document.visibilityState === 'visible') {
+    tickRest();
+    if (!document.activeElement?.matches('input,textarea')) rerender();
+    if (SY.cfg && Date.now() - (SY.cfg.last || 0) > 60000) syncNow();   // pick up other devices' changes
+  } else if (SY.timer) syncNow();   // leaving: push pending changes now
 });
+window.addEventListener('online', () => syncNow());
 window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });  // render() applies pendingScroll
-window.addEventListener('storage', e => { if (e.key === KEY) { S = store.load(); rerender(); } });
+window.addEventListener('storage', e => { if (e.key === KEY && !VIEW) { S = store.load(); resnap(); rerender(); } });
 render();
+if (SY.cfg && !VIEW) syncNow();

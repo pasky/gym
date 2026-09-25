@@ -1,15 +1,43 @@
 # Gym log
 
-A static, mobile-first exercise log.
+A small, mobile-first workout log that runs entirely in the browser. It's a static site with no backend, and syncing and sharing optionally go through a GitHub repo.
 
-1. Tap ＋ on any exercise and log it; the first tap starts the visit. Exercises are grouped by muscle group, and each group shows sets this week, a 4-week average and when it was last trained. Groups untouched for a week are flagged *due*, so you can spread the work evenly. The list stays under your logged exercises for picking the next one.
-2. Log weight/reps per set (tap ✓ to accept the target) and let the rest timer run. For the trainer's supersets (row + face pull) the app offers to add the partner, and skips the rest between them.
-3. When you've hit all sets, a 📈 prompt offers to raise the target (weight or reps). The Progress tab has per-exercise charts and a muscle-balance breakdown.
+**Live:** https://pasky.github.io/gym/
 
-- `catalog.js` holds the exercise library (with muscle group + default target) and the trainer's sheets. **Add new exercises here** (plus a photo in `img/ex/`), keeping ids stable.
-- All user data (sessions, target tweaks, notes) lives in `localStorage` under `gym.v1`. You can export/import it from the 💾 Data tab. Everything goes through the `store` object in `app.js`, which is where to swap in server-side storage later.
-- `./deploy.sh` rsyncs to `~/WWW/gym` and cache-busts asset URLs.
-- `python3 test/smoke.py` runs a headless Playwright smoke test (screenshots go to `/tmp/gym-*.png`).
+1. Tap ＋ on any exercise and log it; the first tap starts the visit. Exercises are grouped by muscle group, and each group shows sets this week, a 4-week average and when it was last trained. Groups untouched for a week are flagged *due*, so you can spread the work evenly.
+2. Log weight/reps per set (tap ✓ to accept the target) and let the rest timer run. Each card shows the coaching tips, a breathing cue and your last performance. For the trainer's supersets the app offers to add the partner, and skips the rest between them.
+3. When you've hit all sets, a 📈 prompt offers to raise the target. The Progress tab has per-exercise charts and a muscle-balance breakdown, and the Targets tab lets you tweak prescriptions.
+
+Everything is saved in the browser on every change. Syncing is optional.
+
+## Sync & sharing (GitHub repo as storage)
+
+The log can live as one JSON file (`gym.json`) in a GitHub repo, written through GitHub's API straight from the browser:
+
+- **Several devices:** sync runs when the app opens, after changes, on Finish, and when the app goes to the background. Devices merge rather than overwrite each other: every visit, target and note carries a modification time, and deletions leave a marker. GitHub rejects writes based on a stale version (409), so the app re-reads, merges and retries.
+- **History:** every sync is a commit.
+- **Sharing:** *Sync → Copy share link* gives `…/#/view/owner/repo`, a read-only view for anyone if the repo is public. A viewer can also *Copy into my browser* to play with a copy.
+- **Least privilege:** use a *fine-grained token* limited to that one repo with only *Contents: read and write*. It can't touch anything else in the account. The token stays in the browser's localStorage and is never part of the log data or exports.
+
+Setup: create a repo (e.g. `gym-data`) and a token as described in the app under Sync, then paste them in.
+
+## For trainers: your own copy for your clients
+
+1. **Fork** this repo and enable **GitHub Pages** (Settings → Pages → Deploy from branch → `main`, `/`). Your copy lives at `https://<you>.github.io/gym/`.
+2. **Customize the exercises** in `catalog.js` (the GitHub web editor is fine): names, muscle groups, default targets, tips, breathing cues, photos in `img/ex/`. Keep `id`s stable once clients use them.
+3. **Per client:** create one **private** repo (e.g. `gym-anna`) and a fine-grained token limited to *that repo* with *Contents: read and write*. In the app, *Sync → Trainer: set up a client* turns them into a link like `…/#/connect/you/gym-anna/<token>`.
+   - **Client side:** the client opens the link once on each device. They need no GitHub account; the app stores the token and removes it from the address bar.
+   - **The link is a secret:** it lets whoever has it edit that client's log. Send it privately. If it leaks, revoke the token on GitHub and send a new link.
+   - **Token expiry:** when a token expires, sync shows a warning until the client gets a new link. Their local data is unaffected.
+4. **Viewing clients:** open `…/#/view/you/gym-anna`. For private repos, save a token with read access to your client repos under *Sync → View someone's log → Private repos*.
+
+## Development
+
+Plain HTML/CSS/JS with no build step: `index.html`, `style.css`, `catalog.js` (exercise data), `sync.js` (merge + GitHub API client), `app.js` (UI).
+
+- `python3 test/smoke.py` runs a headless Playwright test of the logging flows.
+- `python3 test/sync_test.py` runs an end-to-end sync test against a fake GitHub API: multiple devices, 409 conflicts, deletions, targets/notes, share view, private client repos, bad tokens.
+- `./deploy.sh [DEST]` copies the site elsewhere (default `~/WWW/gym`).
 
 ## Trainer sheet review (Sep 2026)
 
@@ -19,13 +47,3 @@ Issues found on the two sheets (`img/sheets/`). The corrected muscle lists are i
 - **Muscle lists.** The step-up lists calves (only minor). The curl→press omits triceps. The Bulgarian split squat lists hamstrings as main (they're secondary). The isometric lunge lists adductors, but its ankle cue really targets the foot arch / tibialis posterior.
 - **Parameters.** The row + face pull superset has no rest (assumed ~90 s after the face pull). The Bulgarian split squat and isometric lunge omit "each side". It's unclear whether chest press 5 kg is per cable, what the trunk-twist med ball weighs, or whether the deadbug is 10 reps total or per side.
 - **Photos / cues.** The isometric lunge photo shows the rear knee resting on the floor. The deadbug's 2nd photo shows a moving leg extension, not a hold. "Drive through your heels" (box squat) is a dated cue.
-
-## Server sync storage (WebDAV)
-
-`server/` sets up `https://pasky.or.cz/gym-sync/<profile>.json` using Apache's WebDAV module, with no application code on the server. Each profile has its own file and password. **Files are world-readable** (for now); only a profile's own password can overwrite its file. Everything other than GET/PUT of a plain `<profile>.json` name is refused.
-
-- `sudo sh server/setup-webdav.sh install` sets up the Apache config (idempotent, rolls back on failure) and runs live checks with a temporary profile.
-- `sudo sh server/setup-webdav.sh add NAME` / `passwd NAME` / `remove NAME [--purge]` / `list` manage profiles (names: `[a-z0-9][a-z0-9_-]{0,31}`; `selftest*` is reserved for checks). Passwords are generated and printed once. Changes are live immediately, without an Apache reload.
-- `sudo sh server/setup-webdav.sh check` / `uninstall`.
-- `sh server/test-local.sh` tests the config template on a throwaway unprivileged Apache, including inherited-handler (PHP-like) and cross-profile write attempts.
-- `sh server/test-setup-sandbox.sh` runs the whole root script end to end without root, against a sandboxed Apache and vhost file: install, re-install, profiles, rollback of a broken config, uninstall.
