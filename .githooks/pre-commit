@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stamp app.js with a version (UTC time of the commit) so the app can tell when it's running a stale copy.
+# Enable once per clone:  git config core.hooksPath .githooks
+v=$(date -u +%Y-%m-%d.%H%M)
+sed -i "s/^const APP_VERSION = '[^']*';/const APP_VERSION = '$v';/" app.js
+git add app.js

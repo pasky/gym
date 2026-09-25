@@ -1,4 +1,5 @@
 'use strict';
+const APP_VERSION = '2026-09-25.1755';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -407,6 +408,21 @@ async function showQr(el, text, note) {
 const connectLink = cfg => `${appUrl()}#/connect/${cfg.repo}/${cfg.token}${cfg.path !== 'gym.json' ? '/' + cfg.path : ''}`;
 const SECRET_NOTE = '🔒 Contains the token: whoever scans or gets this can edit the log. Don\'t screenshot or share it.';
 
+// the version on the server (null if offline/unknown), fetched past every cache
+async function checkVersion() {
+  try {
+    const t = await (await fetch('app.js?check=' + Date.now(), { cache: 'no-store' })).text();
+    return (t.match(/const APP_VERSION = '([^']*)'/) || [])[1] || null;
+  } catch (e) { return null; }
+}
+setTimeout(() => checkVersion().then(v => {
+  if (v && v !== APP_VERSION) {
+    const b = document.createElement('button');
+    b.className = 'update'; b.dataset.a = 'reload'; b.textContent = '🔄 Update available: tap to reload';
+    document.body.appendChild(b);
+  }
+}), 3000);
+
 function copyText(t, what) {
   (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast(`${what} copied`), () => prompt(`Copy the ${what.toLowerCase()}:`, t));
 }
@@ -666,7 +682,9 @@ function vSettings() {
     <div class="card"><h3>💾 Backup</h3><p><small>This browser holds ${(bytes / 1024).toFixed(1)} kB of log data.</small></p>
       <p><button class="btn sm" data-a="export">Export backup (JSON)</button>
       <label class="btn sm ghost">Import backup<input type="file" accept="application/json,.json" id="import" hidden></label></p>
+      <div id="import-out"></div>
       <p><button class="btn sm ghost danger" data-a="reset">Erase all data in this browser</button></p></div>
+    <p><small class="muted" id="appver"></small></p>
     <h2>Trainer sheets</h2>
     ${CATALOG.plans.filter(p => p.sheet).map(p => `<a href="${h(p.sheet)}" target="_blank"><img class="hero" src="${h(p.sheet)}" alt="${h(p.name)}"></a>`).join('')}`;
 }
@@ -711,7 +729,13 @@ function render() {
   if (VIEW) main.querySelectorAll('input, textarea, select, button').forEach(el => { if (!el.hasAttribute('data-ro')) el.disabled = true; });
   syncBadge();
   const imp = $('#import');
-  if (imp) imp.onchange = () => importFile(imp.files[0]);
+  if (imp) imp.onchange = () => { importFile(imp.files[0]); imp.value = ''; };   // reset: re-picking the same file fires again
+  if ($('#appver')) checkVersion().then(v => {
+    const el = $('#appver');
+    if (!el) return;
+    el.innerHTML = `App version ${h(APP_VERSION)} ` + (v === null ? '(offline: couldn\'t check for updates)'
+      : v === APP_VERSION ? '✓ latest' : `· <b>newer version ${h(v)} available</b> <button class="btn sm" data-a="reload">Reload</button>`);
+  });
   if (route === 'targets' && arg) document.getElementById('t-' + arg)?.scrollIntoView();
   if (pendingScroll) { document.getElementById(pendingScroll)?.scrollIntoView({ block: 'start' }); pendingScroll = null; }
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#/' + (route || '')));
@@ -824,6 +848,10 @@ const actions = {
   'device-qr': () => showQr($('#qr-out'), connectLink(SY.cfg), SECRET_NOTE),
   'client-qr': b => showQr($('#t-qr'), b.dataset.text, SECRET_NOTE),
   'hide-qr': b => { b.closest('#qr-out, #t-qr').innerHTML = ''; },
+  reload: () => location.reload(),
+  'import-merge': () => finishImport(true),
+  'import-replace': () => finishImport(false),
+  'import-cancel': () => { pendingImport = null; $('#import-out').innerHTML = ''; },
   'view-refresh': () => { location.hash = '#/view/' + repoPath(VIEW); },
   'view-exit': () => { exitView(); go('#/'); },
   'view-copy': () => {
@@ -883,17 +911,36 @@ document.addEventListener('change', e => {
 // Backup import. The listener sits on the <input> itself (set in render()): if the page re-renders
 // while the file picker is open, the file goes to the old, detached input, whose events no longer
 // bubble up to document.
+// No native confirm()/alert() here: browsers can silently suppress them ("prevent this page from
+// creating dialogs"), which made imports look like they did nothing. Results show in #import-out.
+let pendingImport = null;
 function importFile(file) {
   if (!file) return;
+  const show = html => { const o = $('#import-out'); if (o) o.innerHTML = html; else toast(html.replace(/<[^>]*>/g, '')); };
+  show('<p class="muted">Reading…</p>');
   file.text().then(t => {
-    const d = JSON.parse(t);
+    let d;
+    try { d = JSON.parse(t); } catch (e) { throw new Error("that file isn't JSON"); }
     validateBackup(d);
-    if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
-    S = migrate(Object.assign(emptyState(), { v: 1 }, d));
-    if (S.active && !sess(S.active)) S.active = null;
-    resnap(); save(); go('#/');
-    toast('Backup imported');
-  }).catch(err => alert('Import failed: ' + err.message));
+    pendingImport = normalize(d);
+    const ss = pendingImport.sessions.filter(x => x.end);
+    const range = ss.length ? ` (${fmtD(ss[0].start)} – ${fmtD(ss.at(-1).start)})` : '';
+    show(`<div class="card sug"><b>${h(file.name)}</b>: ${ss.length} visit${ss.length === 1 ? '' : 's'}${range}
+      <p><button class="btn sm" data-a="import-merge">Merge into my log</button>
+      <button class="btn sm ghost danger" data-a="import-replace">Replace my log</button>
+      <button class="btn sm ghost" data-a="import-cancel">Cancel</button></p>
+      <small>Merge keeps what's already here${SY.cfg ? ' and on GitHub' : ''} and adds the backup's visits, targets and notes.${SY.cfg ? ' (Replace only affects this browser: the next sync merges the GitHub copy back in.)' : ''}</small></div>`);
+  }).catch(err => show(`<p class="down">⚠️ Import failed: ${h(err.message)}</p>`));
+}
+function finishImport(merge) {
+  if (!pendingImport) return;
+  const active = S.active;
+  S = merge ? mergeStates(S, pendingImport) : pendingImport;
+  S.active = merge && active && sess(active) ? active : null;
+  pendingImport = null;
+  resnap(); save();
+  if (SY.cfg) syncNow(true);
+  go('#/'); toast(merge ? 'Backup merged in ✓' : 'Backup imported ✓');
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {

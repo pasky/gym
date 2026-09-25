@@ -104,7 +104,9 @@ try:
         pg.goto('http://localhost:8765/#/data'); pg.wait_for_selector('#import', state='attached')
         with pg.expect_file_chooser() as fc: pg.click('text=Import backup')
         pg.evaluate("document.dispatchEvent(new Event('visibilitychange')); rerender()")
-        fc.value.set_files(bk.name); pg.wait_for_timeout(500)
+        fc.value.set_files(bk.name); pg.wait_for_selector('[data-a=import-merge]')
+        assert '1 visit' in pg.inner_text('#import-out'), pg.inner_text('#import-out')
+        pg.click('[data-a=import-merge]'); pg.wait_for_timeout(300)
         st = state(pg)
         assert any(x['id'] == 'imp1' for x in st['sessions']) and st['notes']['lat-pulldown']['t'] == 'seat 4', 'import after re-render failed'
         print('import after re-render: ok')
@@ -113,12 +115,21 @@ try:
         pg.evaluate("document.activeElement.blur(); document.dispatchEvent(new Event('visibilitychange'))")
         assert pg.input_value('#c-repo') == 'me/gym-data', 'form cleared on resume'
         print('form survives resume: ok')
+        # version check: Sync page says latest; a newer server copy triggers the update banner
+        pg.goto('http://localhost:8765/#/data'); pg.wait_for_function("() => /latest/.test(document.querySelector('#appver')?.textContent || '')")
+        # (fresh context without service workers: Playwright can't intercept requests a SW makes)
+        vctx = b.new_context(service_workers='block'); vp = vctx.new_page()
+        vp.route('**/app.js?check=*', lambda r: r.fulfill(status=200, content_type='text/javascript', body="const APP_VERSION = '2099-01-01.0000';"))
+        vp.goto('http://localhost:8765/#/data')
+        vp.wait_for_selector('.update', timeout=8000); vp.wait_for_selector('#appver button[data-a=reload]')
+        print('update detection: ok'); vctx.close()
         # invalid import must not clobber data
         before = pg.evaluate("localStorage['gym.v1']")
         pg.goto(URL + '#/data')
         pg.set_input_files('#import', files=[{'name': 'b.json', 'mimeType': 'application/json', 'buffer': b'{"sessions":[null]}'}])
         pg.wait_for_timeout(300)
         assert pg.evaluate("localStorage['gym.v1']") == before, 'import clobbered data'
+        assert 'Import failed' in pg.inner_text('#import-out'), 'no inline error for a bad backup'
         b.close()
 finally:
     srv.terminate()

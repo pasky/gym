@@ -137,3 +137,5 @@ details li { margin: .3rem 0; }
 .ro .pick { cursor: default; }
 .qr { background: #fff; padding: .5rem; border-radius: 12px; max-width: 280px; margin: .6rem auto 0; }
 .qr svg { display: block; width: 100%; height: auto; }
+.update { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 30;
+  background: #ffd65a; color: #4a3a00; border: 0; border-radius: 99px; padding: .6rem 1rem; font: inherit; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
