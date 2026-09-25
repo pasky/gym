@@ -38,6 +38,7 @@ Plain HTML/CSS/JS with no build step: `index.html`, `style.css`, `catalog.js` (e
 - `python3 test/smoke.py` runs a headless Playwright test of the logging flows.
 - `python3 test/sync_test.py` runs an end-to-end sync test against a fake GitHub API: multiple devices, 409 conflicts, deletions, targets/notes, share view, private client repos, bad tokens.
 - `./deploy.sh [DEST]` copies the site elsewhere (default `~/WWW/gym`).
+- `git config core.hooksPath .githooks` (once per clone) enables the pre-commit hook that stamps `APP_VERSION` in `app.js`. The Sync page shows the running version, and the app offers a reload when the server has a newer one.
 
 ## Trainer sheet review (Sep 2026)
 
