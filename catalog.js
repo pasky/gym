@@ -1,18 +1,29 @@
-// Source of truth for the exercise library and plan structure (edit here, not in the app).
-// The app only stores sessions + per-plan-item target overrides (sets/reps/load/rest) in the browser,
-// keyed by `${planId}:${exerciseId}`, so changes here propagate. Keep ids stable.
+// Source of truth for the exercise library and visit presets (edit here, not in the app).
+// The app only stores sessions, per-exercise target overrides and notes in the browser (keyed by
+// exercise id), so changes here propagate. Keep ids stable.
 //
 // Exercise fields:
+//   group: muscle group bucket (see groups below), used to balance visits
+//   target: default prescription { sets, reps (or seconds for holds), load kg|null, rest s } (user can override in-app)
+//   ss: superset tag; consecutive exercises with the same tag in a visit are done back-to-back (no rest between)
 //   kind: 'reps' | 'hold' (hold => the "reps" number is seconds)
 //   perSide: reps/holds are per side
 //   loadType: 'kg' (external load), 'bw' (bodyweight, optional added kg), 'none'
 //   step: default progression increment (kg, or seconds for holds)
 //   sheet: muscles as listed on the trainer's sheet; review: notes from checking the sheet
 window.CATALOG = {
+  groups: [
+    { id: 'legs', name: 'Legs & glutes' },
+    { id: 'back', name: 'Back (pull)' },
+    { id: 'chest', name: 'Chest (push)' },
+    { id: 'shoulders', name: 'Shoulders & arms' },
+    { id: 'core', name: 'Core' },
+  ],
   exercises: [
     // ---- Training A ----
     {
-      id: 'goblet-step-up', name: 'Goblet step-up', detail: '45 cm box, weight held at chest',
+      id: 'goblet-step-up', group: 'legs', target: { sets: 3, reps: 8, load: 6, rest: 90 },
+      name: 'Goblet step-up', detail: '45 cm box, weight held at chest',
       img: 'img/ex/goblet-step-up.jpg', kind: 'reps', perSide: true, loadType: 'kg', step: 2,
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Calves', 'Core'],
       sheet: 'Quads, glutes, calves',
@@ -20,7 +31,8 @@ window.CATALOG = {
       tips: ['Drive through the whole foot.', 'Keep your chest up and core tight.', 'Control the movement.'],
     },
     {
-      id: 'goblet-box-squat', name: 'Goblet box squat', detail: '45 cm box',
+      id: 'goblet-box-squat', group: 'legs', target: { sets: 3, reps: 8, load: 12, rest: 90 },
+      name: 'Goblet box squat', detail: '45 cm box',
       img: 'img/ex/goblet-box-squat.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2,
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Core'],
       sheet: 'Quads, glutes',
@@ -28,7 +40,8 @@ window.CATALOG = {
       tips: ['Sit back and touch the box.', 'Drive through your heels.', 'Keep your core tight and chest up.'],
     },
     {
-      id: 'seated-cable-row', name: 'Seated cable row', detail: 'Superset with face pull',
+      id: 'seated-cable-row', group: 'back', target: { sets: 3, reps: 10, load: 25, rest: 90 }, ss: 'row-facepull',
+      name: 'Seated cable row', detail: 'Superset with face pull',
       img: 'img/ex/seated-cable-row.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Lats', 'Rhomboids', 'Mid traps'], secondary: ['Rear delts', 'Biceps', 'Core'],
       sheet: 'Back, rear delts (shared with face pull)',
@@ -36,7 +49,8 @@ window.CATALOG = {
       tips: ['Pull your shoulder blades back and down.', 'Squeeze your back at the end.', 'Control the movement.'],
     },
     {
-      id: 'face-pull', name: 'Face pull', detail: 'Cable, rope attachment',
+      id: 'face-pull', group: 'back', target: { sets: 3, reps: 12, load: 10, rest: 90 }, ss: 'row-facepull',
+      name: 'Face pull', detail: 'Cable, rope attachment',
       img: 'img/ex/face-pull.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Rear delts', 'Rhomboids / mid traps', 'Rotator cuff (external rotators)'], secondary: ['Biceps'],
       sheet: 'Back, rear delts (shared with seated row)',
@@ -44,7 +58,8 @@ window.CATALOG = {
       tips: ['Pull towards your face.', 'Keep elbows high (comfortably).', 'Squeeze your shoulder blades.'],
     },
     {
-      id: 'curl-to-press', name: 'Biceps curl into shoulder press', detail: 'Dumbbells, weight is per hand',
+      id: 'curl-to-press', group: 'shoulders', target: { sets: 3, reps: 8, load: 6, rest: 90 },
+      name: 'Biceps curl into shoulder press', detail: 'Dumbbells, weight is per hand',
       img: 'img/ex/curl-to-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 1,
       primary: ['Biceps', 'Front / side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Core'],
       sheet: 'Biceps, shoulders',
@@ -52,7 +67,8 @@ window.CATALOG = {
       tips: ['Curl the weights up.', 'Press overhead with control.', 'Keep your core tight.'],
     },
     {
-      id: 'cable-trunk-twist', name: 'Cable trunk twist', detail: 'Med ball on the chest',
+      id: 'cable-trunk-twist', group: 'core', target: { sets: 3, reps: 10, load: 7.5, rest: 90 },
+      name: 'Cable trunk twist', detail: 'Med ball on the chest',
       img: 'img/ex/cable-trunk-twist.jpg', kind: 'reps', perSide: true, loadType: 'kg', step: 2.5,
       primary: ['Obliques'], secondary: ['Rectus abdominis', 'Transverse abdominis', 'Hip rotators'],
       sheet: 'Core, obliques',
@@ -61,7 +77,8 @@ window.CATALOG = {
     },
     // ---- Training B ----
     {
-      id: 'isometric-lunge', name: 'Isometric lunge', detail: 'Inside ankle high, pressure on the outside of the foot',
+      id: 'isometric-lunge', group: 'legs', target: { sets: 3, reps: 20, load: null, rest: 60 },
+      name: 'Isometric lunge', detail: 'Inside ankle high, pressure on the outside of the foot',
       img: 'img/ex/isometric-lunge.jpg', kind: 'hold', perSide: true, loadType: 'none', step: 5,
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Foot arch / tibialis posterior', 'Calves', 'Core'],
       sheet: 'Quads, glutes, adductors',
@@ -69,7 +86,8 @@ window.CATALOG = {
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Stay upright and engaged.'],
     },
     {
-      id: 'bulgarian-split-squat', name: 'Bulgarian split squat', detail: 'Rear foot on bench; inside ankle high, pressure on the outside of the foot',
+      id: 'bulgarian-split-squat', group: 'legs', target: { sets: 3, reps: 8, load: null, rest: 90 },
+      name: 'Bulgarian split squat', detail: 'Rear foot on bench; inside ankle high, pressure on the outside of the foot',
       img: 'img/ex/bulgarian-split-squat.jpg', kind: 'reps', perSide: true, loadType: 'bw', step: 2,
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Glute med', 'Foot arch', 'Core'],
       sheet: 'Quads, glutes, hamstrings',
@@ -77,7 +95,8 @@ window.CATALOG = {
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Control the movement.'],
     },
     {
-      id: 'kinesis-chest-press', name: 'Chest press', detail: 'Kinesis machine, standing',
+      id: 'kinesis-chest-press', group: 'chest', target: { sets: 3, reps: 10, load: 5, rest: 60 },
+      name: 'Chest press', detail: 'Kinesis machine, standing',
       img: 'img/ex/kinesis-chest-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Chest'], secondary: ['Front delts', 'Triceps', 'Serratus', 'Core'],
       sheet: 'Chest, shoulders, triceps',
@@ -85,7 +104,8 @@ window.CATALOG = {
       tips: ['Keep your core tight and chest up.', 'Press forward and squeeze the chest.', 'Control the movement.'],
     },
     {
-      id: 'lat-pulldown', name: 'Lat pulldown', detail: 'Grip a little wider than shoulder width',
+      id: 'lat-pulldown', group: 'back', target: { sets: 3, reps: 10, load: 35, rest: 90 },
+      name: 'Lat pulldown', detail: 'Grip a little wider than shoulder width',
       img: 'img/ex/lat-pulldown.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Lats', 'Teres major'], secondary: ['Biceps', 'Mid / lower traps', 'Rhomboids', 'Rear delts'],
       sheet: 'Lats, mid back, biceps',
@@ -93,7 +113,8 @@ window.CATALOG = {
       tips: ['Pull elbows down and back.', 'Squeeze your lats at the bottom.', 'Control the movement.'],
     },
     {
-      id: 'deadbug-hold', name: 'Deadbug isometric hold', detail: 'Palms pressed against thighs, 3 s hold per rep',
+      id: 'deadbug-hold', group: 'core', target: { sets: 3, reps: 10, load: null, rest: 60 },
+      name: 'Deadbug isometric hold', detail: 'Palms pressed against thighs, 3 s hold per rep',
       img: 'img/ex/deadbug-hold.jpg', kind: 'reps', perSide: false, loadType: 'none', step: 1,
       primary: ['Rectus abdominis', 'Transverse abdominis', 'Obliques'], secondary: ['Hip flexors'],
       sheet: 'Abs, core',
@@ -101,27 +122,11 @@ window.CATALOG = {
       tips: ['Keep your lower back pressed into the floor.', 'Press your palms against your thighs.', 'Stay stable and breathe.'],
     },
   ],
+  // Presets for quick-filling a visit (the trainer's original sheets). Visits can mix any exercises.
   plans: [
-    {
-      id: 'A', name: 'Training A', sheet: 'img/sheets/training-a.jpg',
-      items: [
-        { ex: 'goblet-step-up', sets: 3, reps: 8, load: 6, rest: 90 },
-        { ex: 'goblet-box-squat', sets: 3, reps: 8, load: 12, rest: 90 },
-        { ex: 'seated-cable-row', sets: 3, reps: 10, load: 25, rest: 0, ss: '1' },
-        { ex: 'face-pull', sets: 3, reps: 12, load: 10, rest: 90, ss: '1' },
-        { ex: 'curl-to-press', sets: 3, reps: 8, load: 6, rest: 90 },
-        { ex: 'cable-trunk-twist', sets: 3, reps: 10, load: 7.5, rest: 90 },
-      ],
-    },
-    {
-      id: 'B', name: 'Training B', sheet: 'img/sheets/training-b.jpg',
-      items: [
-        { ex: 'isometric-lunge', sets: 3, reps: 20, load: null, rest: 60 },
-        { ex: 'bulgarian-split-squat', sets: 3, reps: 8, load: null, rest: 90 },
-        { ex: 'kinesis-chest-press', sets: 3, reps: 10, load: 5, rest: 60 },
-        { ex: 'lat-pulldown', sets: 3, reps: 10, load: 35, rest: 90 },
-        { ex: 'deadbug-hold', sets: 3, reps: 10, load: null, rest: 60 },
-      ],
-    },
+    { id: 'A', name: 'Training A', sheet: 'img/sheets/training-a.jpg',
+      ex: ['goblet-step-up', 'goblet-box-squat', 'seated-cable-row', 'face-pull', 'curl-to-press', 'cable-trunk-twist'] },
+    { id: 'B', name: 'Training B', sheet: 'img/sheets/training-b.jpg',
+      ex: ['isometric-lunge', 'bulgarian-split-squat', 'kinesis-chest-press', 'lat-pulldown', 'deadbug-hold'] },
   ],
 };

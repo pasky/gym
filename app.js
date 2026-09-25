@@ -18,13 +18,24 @@ const store = {
   load() {
     let s = null;
     try { s = JSON.parse(localStorage.getItem(KEY)); } catch (e) { /* ignore */ }
-    return Object.assign({ v: 1, sessions: [], active: null, targets: {}, targetLog: [], notes: {} }, s || {});
+    return migrate(Object.assign(emptyState(), s || {}));
   },
   save(s) {
     try { localStorage.setItem(KEY, JSON.stringify(s)); }
     catch (e) { alert('Could not save to browser storage!\n' + e); }
   },
 };
+function emptyState() { return { v: 2, sessions: [], active: null, targets: {}, targetLog: [], notes: {}, draft: [] }; }
+function migrate(s) {
+  if ((s.v || 1) < 2) { // v1 keyed targets by `${planId}:${exId}`; v2 keys by exercise id
+    const strip = k => k.includes(':') ? k.split(':')[1] : k;
+    s.targets = Object.fromEntries(Object.entries(s.targets || {}).map(([k, v]) => [strip(k), v]));
+    (s.targetLog || []).forEach(l => { l.ex = strip(l.key || ''); delete l.key; });
+    s.v = 2;
+  }
+  s.draft ||= [];
+  return s;
+}
 let S = store.load();
 const save = () => store.save(S);
 
@@ -32,24 +43,23 @@ const save = () => store.save(S);
 const EX = Object.fromEntries(CATALOG.exercises.map(e => [e.id, e]));
 const exOf = id => EX[id] || { id, name: id + ' (removed)', primary: [], secondary: [], tips: [], kind: 'reps', loadType: 'kg', step: 2.5 };
 const plan = id => CATALOG.plans.find(p => p.id === id);
-const itemKey = (planId, exId) => `${planId}:${exId}`;
-function planItems(p) {
-  return p.items.map(it => {
-    const key = itemKey(p.id, it.ex);
-    return { ...it, key, ...(S.targets[key] || {}) };
-  });
+const groupName = id => CATALOG.groups.find(g => g.id === id)?.name || 'Other';
+const targetOf = exId => ({ sets: 3, reps: 10, load: null, rest: 90, ...(EX[exId]?.target || {}), ...(S.targets[exId] || {}) });
+function setTarget(exId, k, v) {
+  const cur = targetOf(exId);
+  if (cur[k] === v) return;
+  S.targets[exId] = { ...(S.targets[exId] || {}), [k]: v };
+  S.targetLog.push({ t: Date.now(), ex: exId, k, from: cur[k], to: v });
 }
-function planItem(key) {
-  if (!key) return null;
-  const [pid] = key.split(':');
-  const p = plan(pid);
-  return p && planItems(p).find(i => i.key === key);
+// exercises bucketed by muscle group, in catalog order
+function byGroup() {
+  const gs = CATALOG.groups.map(g => ({ ...g, ex: CATALOG.exercises.filter(e => e.group === g.id) }));
+  const other = CATALOG.exercises.filter(e => !CATALOG.groups.some(g => g.id === e.group));
+  return other.length ? [...gs, { id: 'other', name: 'Other', ex: other }] : gs;
 }
-function setTarget(key, k, v) {
-  const cur = planItem(key);
-  if (!cur || cur[k] === v) return;
-  S.targets[key] = { ...(S.targets[key] || {}), [k]: v };
-  S.targetLog.push({ t: Date.now(), key, k, from: cur[k], to: v });
+function exSelect(id) {
+  return `<select id="${id}"><option value="">choose…</option>${byGroup().map(g => `<optgroup label="${h(g.name)}">
+    ${g.ex.map(e => `<option value="${e.id}">${h(e.name)}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
 const sess = id => S.sessions.find(s => s.id === id);
 
@@ -93,25 +103,62 @@ function metricKind(allSets) {
 const metricOf = (sets, m) => m.unit === 'kg' ? Math.max(0, ...sets.map(x => x.w || 0)) : sets.reduce((a, x) => a + (x.r || 0), 0);
 
 // ---------- sessions ----------
-function mkItem(exId, t, key) {
+function mkItem(exId) {
+  const t = targetOf(exId);
   return {
-    ex: exId, key: key || null, ss: t.ss || '',
+    ex: exId, ss: EX[exId]?.ss || '',
     target: { sets: t.sets, reps: t.reps, load: t.load ?? null, rest: t.rest ?? 90 },
     sets: Array.from({ length: t.sets }, () => ({ w: null, r: null, done: false })), note: '',
   };
 }
-function startSession(planId) {
+function startSession(exIds) {
   if (S.active && sess(S.active)) { go('#/s/' + S.active); return; }
-  const p = plan(planId);
+  exIds = exIds.filter(id => EX[id]);
+  // keep superset partners adjacent
+  const order = [];
+  for (const id of exIds) {
+    if (order.includes(id)) continue;
+    const tag = EX[id].ss; // whole superset group goes here, in catalog order
+    if (tag) CATALOG.exercises.filter(e => e.ss === tag && exIds.includes(e.id)).forEach(e => order.push(e.id));
+    else order.push(id);
+  }
+  const p = CATALOG.plans.find(p => p.ex.length === order.length && p.ex.every(e => order.includes(e)));
+  const groups = [...new Set(order.map(id => EX[id].group))].map(g => groupName(g).split(' ')[0]);
   const s = {
-    id: uid(), planId: p ? p.id : null, name: p ? p.name : 'Free session', start: Date.now(), end: null, note: '',
-    items: p ? planItems(p).map(i => mkItem(i.ex, i, i.key)) : [],
+    id: uid(), planId: p?.id || null, name: p ? p.name : (groups.join(' · ') || 'Visit'),
+    start: Date.now(), end: null, note: '', items: order.map(mkItem),
   };
-  S.sessions.push(s); S.active = s.id; save(); go('#/s/' + s.id);
+  S.sessions.push(s); S.active = s.id; S.draft = []; save(); go('#/s/' + s.id);
 }
-function nextPlanId() {
-  const last = pid => Math.max(0, ...S.sessions.filter(s => s.planId === pid).map(s => s.start));
-  return [...CATALOG.plans].sort((a, b) => last(a.id) - last(b.id))[0]?.id;
+// when an exercise / muscle group was last trained, and how many sets recently
+function lastDone(exId) {
+  return Math.max(0, ...S.sessions.filter(s => s.items.some(i => i.ex === exId && doneSets(i).length)).map(s => s.start));
+}
+function groupStats() {
+  const now = Date.now(), st = {};
+  for (const s of S.sessions) for (const it of s.items) {
+    const n = doneSets(it).length, g = exOf(it.ex).group || 'other';
+    if (!n) continue;
+    st[g] ||= { w: 0, m: 0, last: 0 };
+    if (now - s.start < 7 * 864e5) st[g].w += n;
+    if (now - s.start < 28 * 864e5) st[g].m += n;
+    st[g].last = Math.max(st[g].last, s.start);
+  }
+  return st;
+}
+const ago = t => {
+  if (!t) return 'never';
+  const d = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(t).setHours(0, 0, 0, 0)) / 864e5);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} d ago`;
+};
+// balanced pick: least recently done exercise(s) per group; legs get two
+function balancedPick() {
+  const pick = [];
+  for (const g of byGroup()) {
+    const n = g.id === 'legs' ? 2 : 1;
+    [...g.ex].sort((a, b) => lastDone(a.id) - lastDone(b.id)).slice(0, n).forEach(e => pick.push(e.id));
+  }
+  return pick;
 }
 
 // ---------- rest timer ----------
@@ -166,36 +213,54 @@ const chips = arr => arr.map(m => `<span class="chip">${h(m)}</span>`).join('');
 function targetText(ex, t) {
   const bits = [`${t.sets} × ${t.reps}${ex.kind === 'hold' ? ' s' : ''}${ex.perSide ? ' /side' : ''}`];
   if (t.load) bits.push(`${fmtN(t.load)} kg`); else if (ex.loadType === 'bw') bits.push('bodyweight');
-  if (t.rest) bits.push(`rest ${t.rest} s`); else if (t.ss) bits.push('→ superset');
+  if (t.rest) bits.push(`rest ${t.rest} s`);
   return bits.join(' · ');
 }
 
 function vHome() {
   const a = S.active && sess(S.active);
-  const nxt = nextPlanId();
   const past = S.sessions.filter(s => s.end).sort((x, y) => y.start - x.start);
   let o = '';
   if (a) {
     const all = a.items.flatMap(i => i.sets), d = all.filter(x => x.done).length;
     o += `<a class="card active" href="#/s/${a.id}"><div class="row"><div><b>${h(a.name)}</b> in progress<br>
       <small>started ${fmtT(a.start)} · ${d}/${all.length} sets</small></div><span class="btn">Resume ›</span></div></a>`;
-  }
-  o += `<h2>Start a visit</h2>`;
-  for (const p of CATALOG.plans) {
-    const items = planItems(p);
-    const lastS = S.sessions.filter(s => s.planId === p.id && s.end).at(-1);
-    o += `<div class="card plan"><div class="row"><div><b>${h(p.name)}</b> ${p.id === nxt && !a ? '<span class="chip hi">next up</span>' : ''}
-      <br><small>${lastS ? 'last ' + fmtD(lastS.start) : 'not done yet'}</small></div>
-      <button class="btn" data-a="start" data-p="${p.id}" ${a ? 'disabled' : ''}>Start</button></div>
-      <ol class="mini">${items.map(i => `<li>${h(exOf(i.ex).name)} <small>${h(targetText(exOf(i.ex), i))}</small></li>`).join('')}</ol>
-      <a href="#/plan/${p.id}"><small>Tweak targets ›</small></a></div>`;
-  }
-  if (!a) o += `<p><button class="btn ghost" data-a="start" data-p="">Start an empty session</button></p>`;
+  } else o += vBuilder();
   o += `<h2>Past visits</h2>`;
   o += past.length ? `<div class="list">${past.slice(0, 30).map(s => {
     const n = s.items.reduce((a, i) => a + doneSets(i).length, 0);
     return `<a href="#/s/${s.id}"><span>${fmtD(s.start)}</span><b>${h(s.name)}</b><small>${n} sets · ${dur(s.end - s.start)}</small></a>`;
-  }).join('')}</div>` : '<p class="muted">Nothing yet. Start your first visit above.</p>';
+  }).join('')}</div>` : '<p class="muted">Nothing yet. Pick some exercises above and start your first visit.</p>';
+  return o;
+}
+
+function vBuilder() {
+  const st = groupStats(), draft = S.draft;
+  let o = `<h2>Plan today's visit</h2>
+    <div class="presets"><small>Quick fill:</small>
+      <button class="btn sm" data-a="balanced" title="least recently done exercises from every muscle group">⚖️ Balanced</button>
+      ${CATALOG.plans.map(p => `<button class="btn sm ghost" data-a="preset" data-p="${p.id}">${h(p.name)}</button>`).join('')}
+      ${draft.length ? '<button class="btn sm ghost danger" data-a="clear">Clear</button>' : ''}</div>`;
+  for (const g of byGroup()) {
+    const gs = st[g.id] || { w: 0, m: 0, last: 0 };
+    const picked = g.ex.filter(e => draft.includes(e.id)).length;
+    const stale = !gs.last || Date.now() - gs.last > 7 * 864e5;
+    o += `<div class="card grp ${stale ? 'stale' : ''}">
+      <div class="row"><b>${h(g.name)}</b>${picked ? `<span class="chip hi">${picked} picked</span>` : ''}</div>
+      <small class="gstat">${gs.w} sets this week · ${Math.round(gs.m / 4 * 10) / 10}/wk avg (4 wk) · last ${ago(gs.last)}${stale ? ' · <b>due</b>' : ''}</small>
+      ${g.ex.map(e => {
+        const on = draft.includes(e.id);
+        return `<label class="pick ${on ? 'on' : ''}"><input type="checkbox" data-f="pick" value="${e.id}" ${on ? 'checked' : ''}>
+          ${e.img ? `<img src="${h(e.img)}" alt="" loading="lazy">` : '<span></span>'}
+          <span><b>${h(e.name)}</b>${e.ss ? ' <span class="chip ss">superset</span>' : ''}<br>
+          <small>${h(targetText(e, targetOf(e.id)))} · ${ago(lastDone(e.id))}</small></span>
+          ${on ? `<span class="ord">${draft.indexOf(e.id) + 1}</span>` : ''}</label>`;
+      }).join('')}
+    </div>`;
+  }
+  o += `<p><a href="#/targets">🎯 Tweak targets ›</a></p>
+    <div class="startbar"><button class="btn big" data-a="start" ${draft.length ? '' : 'disabled'}>
+      ${draft.length ? `Start visit · ${draft.length} exercise${draft.length > 1 ? 's' : ''}` : 'Pick exercises to start'}</button></div>`;
   return o;
 }
 
@@ -205,8 +270,7 @@ function vSession(id) {
   const live = !s.end;
   let o = `<div class="shead"><h1>${h(s.name)}</h1><small>${fmtD(s.start)} · ${fmtT(s.start)}${s.end ? '–' + fmtT(s.end) + ' · ' + dur(s.end - s.start) : ' · <span id="elapsed"></span>'}</small></div>`;
   s.items.forEach((it, i) => { o += itemCard(s, it, i); });
-  o += `<div class="card"><label>Add exercise <select id="addex"><option value="">choose…</option>
-    ${CATALOG.exercises.map(e => `<option value="${e.id}">${h(e.name)}</option>`).join('')}</select></label></div>
+  o += `<div class="card"><label>Add exercise ${exSelect('addex')}</label></div>
     <div class="card"><label>Session notes<textarea data-f="snote" rows="2" placeholder="How did it feel? Energy, sleep, pain…">${h(s.note)}</textarea></label></div>`;
   o += live
     ? `<p><button class="btn big" data-a="finish">Finish visit</button></p><p><button class="btn ghost danger" data-a="del">Discard session</button></p>`
@@ -217,10 +281,11 @@ function vSession(id) {
 function itemCard(s, it, i) {
   const ex = exOf(it.ex), t = it.target, live = !s.end;
   const prev = s.items[i - 1], next = s.items[i + 1];
-  const ssTag = it.ss ? `<span class="chip ss">Superset ${h(it.ss)}${prev?.ss === it.ss ? 'B' : 'A'}</span>` : '';
+  const inSS = it.ss && (prev?.ss === it.ss || next?.ss === it.ss);
+  const ssTag = inSS ? `<span class="chip ss">Superset ${prev?.ss === it.ss ? 'B' : 'A'}</span>` : '';
   const lp = lastPerf(it.ex, s.id);
   let sug = '';
-  const pi = planItem(it.key);
+  const pi = EX[it.ex] ? targetOf(it.ex) : null;
   if (live && lp && hitTarget(lp.sets, t)) {
     sug = `<div class="sug">📈 Last time you hit all ${t.sets}×${t.reps}. Time to progress?
       ${progressOptions(ex, t, lp.sets).map(op => `<button class="btn sm" data-a="apply" data-i="${i}" data-k="${op.k}" data-v="${op.v}">${op.label}</button>`).join('')}</div>`;
@@ -234,7 +299,7 @@ function itemCard(s, it, i) {
       <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${t.load != null ? fmtN(t.load) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
       <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}" aria-label="${unit}"></label>
       <button class="tick" data-a="tick" data-i="${i}" data-j="${j}" aria-label="done">✓</button></div>`).join('');
-  return `<div class="card ex ${it.ss ? 'inss' : ''} ${next?.ss && next.ss === it.ss ? 'ssfirst' : ''}">
+  return `<div class="card ex ${inSS ? 'inss' : ''} ${next?.ss && next.ss === it.ss ? 'ssfirst' : ''}">
     <div class="exhead">
       ${ex.img ? `<a href="#/ex/${ex.id}"><img src="${h(ex.img)}" alt="" loading="lazy"></a>` : ''}
       <div><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a> ${ssTag}<br>
@@ -279,10 +344,10 @@ function vExercise(id) {
   if (m && ex.kind === 'hold') m.label = 'Total seconds';
   const pts = hist.map(x => ({ t: x.s.start, v: metricOf(x.sets, m) }));
   const vol = hist.map(x => ({ t: x.s.start, v: x.sets.reduce((a, s) => a + (s.w || 0) * (s.r || 0), 0) }));
-  const inPlans = CATALOG.plans.flatMap(p => planItems(p).filter(i => i.ex === id).map(i => ({ p, i })));
+
   return `${ex.img ? `<img class="hero" src="${h(ex.img)}" alt="">` : ''}
     <h1>${h(ex.name)}</h1><p class="muted">${h(ex.detail || '')}</p>
-    ${inPlans.map(({ p, i }) => `<p>🎯 <a href="#/plan/${p.id}">${h(p.name)}</a>: ${h(targetText(ex, i))}</p>`).join('')}
+    <p>🎯 <a href="#/targets/${ex.id}">Target</a>: ${h(targetText(ex, targetOf(id)))} · <span class="chip">${h(groupName(ex.group))}</span></p>
     <div class="card"><b>Primary</b><div>${chips(ex.primary || [])}</div>
       ${ex.secondary?.length ? `<b>Secondary</b><div class="sec">${chips(ex.secondary)}</div>` : ''}</div>
     ${ex.review ? `<div class="card warn"><b>⚠️ Trainer sheet check</b><p><small>Sheet says: ${h(ex.sheet)}</small></p><p>${h(ex.review)}</p></div>` : ''}
@@ -305,6 +370,7 @@ function vProgress() {
     <div><b>${visits.filter(s => s.start > weekAgo).length}</b><small>last 7 days</small></div>
     <div><b>${visits.filter(s => s.start > monthAgo).length}</b><small>last 30 days</small></div></div>`;
   if (!rows.length) return o + '<p class="muted">No logged sets yet.</p>';
+  o += vBalance();
   o += '<div class="list">';
   for (const { ex, hist } of rows) {
     const m = metricKind(hist.flatMap(x => x.sets));
@@ -316,22 +382,34 @@ function vProgress() {
   return o + '</div>';
 }
 
-function vPlan(id) {
-  const p = plan(id);
-  if (!p) return '<p>Unknown plan.</p>';
-  const items = planItems(p);
-  const log = S.targetLog.filter(l => l.key.startsWith(p.id + ':')).slice(-15).reverse();
-  return `<h1>${h(p.name)}: targets</h1>
-    <p class="muted">Tweak the prescription as you progress. Exercises and order come from the trainer plan.</p>
-    ${items.map(i => {
-      const ex = exOf(i.ex);
-      const f = (k, label, v) => `<label><small>${label}</small><input type="text" inputmode="decimal" data-f="target" data-key="${i.key}" data-k="${k}" value="${v ?? ''}" placeholder="–"></label>`;
-      return `<div class="card"><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a> ${i.ss ? `<span class="chip ss">Superset ${h(i.ss)}</span>` : ''}
-        ${S.targets[i.key] ? `<button class="btn sm ghost" data-a="resettarget" data-key="${i.key}">reset to trainer's</button>` : ''}
-        <div class="tgrid">${f('sets', 'sets', i.sets)}${f('reps', ex.kind === 'hold' ? 'seconds' : 'reps', i.reps)}${f('load', 'kg', fmtN(i.load))}${f('rest', 'rest s', i.rest)}</div></div>`;
-    }).join('')}
-    ${log.length ? `<h2>Target changes</h2><div class="list">${log.map(l => `<div><span>${fmtD(l.t)}</span><b>${h(exOf(l.key.split(':')[1]).name)}</b><small>${h(l.k)}: ${fmtN(l.from) || '–'} → ${fmtN(l.to) || '–'}</small></div>`).join('')}</div>` : ''}
-    ${p.sheet ? `<h2>Trainer sheet</h2><a href="${h(p.sheet)}" target="_blank"><img class="hero" src="${h(p.sheet)}" alt=""></a>` : ''}`;
+// sets per muscle over the last 4 weeks: primary muscles count 1 per set, secondary 0.5
+function vBalance() {
+  const st = groupStats(), since = Date.now() - 28 * 864e5, mus = {};
+  for (const s of S.sessions) if (s.start > since) for (const it of s.items) {
+    const n = doneSets(it).length, ex = exOf(it.ex);
+    (ex.primary || []).forEach(m => { mus[m] = (mus[m] || 0) + n; });
+    (ex.secondary || []).forEach(m => { mus[m] = (mus[m] || 0) + n / 2; });
+  }
+  const gmax = Math.max(1, ...Object.values(st).map(x => x.m));
+  const ms = Object.entries(mus).sort((a, b) => b[1] - a[1]), mmax = Math.max(1, ...ms.map(x => x[1]));
+  const bar = (label, v, max, extra = '') => `<div class="bar"><span>${h(label)}</span><i style="width:${100 * v / max}%"></i><b>${fmtN(v)}</b>${extra}</div>`;
+  return `<h2>Balance (last 4 weeks)</h2><div class="card bars"><small>Sets per muscle group</small>
+    ${CATALOG.groups.map(g => bar(g.name, st[g.id]?.m || 0, gmax)).join('')}
+    <details><summary><small>Per muscle (secondary = ½ set)</small></summary>${ms.map(([m, v]) => bar(m, v, mmax)).join('')}</details></div>`;
+}
+
+function vTargets() {
+  const log = S.targetLog.slice(-20).reverse();
+  return `<h1>Targets</h1>
+    <p class="muted">Your current prescription per exercise. Bump it as you progress (or accept the 📈 suggestions during a visit).</p>
+    ${byGroup().map(g => `<h2>${h(g.name)}</h2>${g.ex.map(ex => {
+      const t = targetOf(ex.id);
+      const f = (k, label, v) => `<label><small>${label}</small><input type="text" inputmode="decimal" data-f="target" data-ex="${ex.id}" data-k="${k}" value="${v ?? ''}" placeholder="–"></label>`;
+      return `<div class="card" id="t-${ex.id}"><div class="row"><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a>
+        ${S.targets[ex.id] ? `<button class="btn sm ghost" data-a="resettarget" data-ex="${ex.id}">reset to trainer's</button>` : ''}</div>
+        <div class="tgrid">${f('sets', 'sets', t.sets)}${f('reps', ex.kind === 'hold' ? 'seconds' : (ex.perSide ? 'reps/side' : 'reps'), t.reps)}${f('load', 'kg', fmtN(t.load))}${f('rest', 'rest s', t.rest)}</div></div>`;
+    }).join('')}`).join('')}
+    ${log.length ? `<h2>Target changes</h2><div class="list">${log.map(l => `<div><span>${fmtD(l.t)}</span><b>${h(exOf(l.ex).name)}</b><small>${h(l.k)}: ${fmtN(l.from) || '–'} → ${fmtN(l.to) || '–'}</small></div>`).join('')}</div>` : ''}`;
 }
 
 function vSettings() {
@@ -368,12 +446,13 @@ function render() {
   let html, sid = null;
   if (route === 's') { html = vSession(arg); sid = arg; }
   else if (route === 'ex') html = vExercise(arg);
-  else if (route === 'plan') html = vPlan(arg);
+  else if (route === 'targets') html = vTargets();
   else if (route === 'progress') html = vProgress();
   else if (route === 'data') html = vSettings();
   else html = vHome();
   main.dataset.sid = sid || '';
   main.innerHTML = html;
+  if (route === 'targets' && arg) document.getElementById('t-' + arg)?.scrollIntoView();
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#/' + (route || '')));
   $('#nav .dot').hidden = !S.active;
   const s = sid && sess(sid);
@@ -390,7 +469,10 @@ function rerender() { const y = scrollY; render(); scrollTo(0, y); }
 // ---------- actions ----------
 const cur = () => sess($('#main').dataset.sid);
 const actions = {
-  start: b => startSession(b.dataset.p),
+  start: () => startSession(S.draft),
+  preset: b => { S.draft = [...plan(b.dataset.p).ex]; save(); rerender(); },
+  balanced: () => { S.draft = balancedPick(); save(); rerender(); toast('Picked the least recently done per group'); },
+  clear: () => { S.draft = []; save(); rerender(); },
   tick: b => {
     const s = cur(), i = +b.dataset.i, it = s.items[i], x = it.sets[+b.dataset.j];
     x.done = !x.done;
@@ -422,9 +504,9 @@ const actions = {
   },
   apply: b => {
     const s = cur(), it = s.items[+b.dataset.i], k = b.dataset.k, v = +b.dataset.v;
-    if (it.key) setTarget(it.key, k, v);
+    if (EX[it.ex]) setTarget(it.ex, k, v);
     if (!s.end) it.target[k] = v;
-    save(); rerender(); toast(it.key ? 'Target updated in plan' : 'Target updated');
+    save(); rerender(); toast('Target updated');
   },
   finish: () => {
     const s = cur();
@@ -440,7 +522,7 @@ const actions = {
     if (S.active === s.id) S.active = null;
     save(); go('#/');
   },
-  resettarget: b => { delete S.targets[b.dataset.key]; save(); rerender(); },
+  resettarget: b => { delete S.targets[b.dataset.ex]; save(); rerender(); },
   'rest-add': () => { if (rest) { rest.end += 15000; rest.total += 15; tickRest(); } },
   'rest-skip': () => { rest = null; tickRest(); },
   export: () => {
@@ -478,18 +560,21 @@ document.addEventListener('change', e => {
     const ok = k === 'load' ? (v == null || (isFinite(v) && v >= 0 && v < 1000))
       : Number.isInteger(v) && v >= (k === 'rest' ? 0 : 1) && v <= { sets: 20, reps: 999, rest: 900 }[k];
     if (!ok) { toast(k === 'load' ? 'Enter a weight in kg (or leave empty)' : `Enter a whole number for ${k}`); rerender(); return; }
-    setTarget(el.dataset.key, k, v); save(); toast('Target saved');
+    setTarget(el.dataset.ex, k, v); save(); toast('Target saved');
+  } else if (el.dataset.f === 'pick') {
+    S.draft = S.draft.filter(x => x !== el.value);
+    if (el.checked) S.draft.push(el.value);
+    save(); rerender();
   } else if (el.id === 'addex' && el.value) {
     const s = cur(), ex = exOf(el.value);
-    const pi = CATALOG.plans.flatMap(planItems).find(i => i.ex === ex.id);
-    s.items.push(mkItem(ex.id, pi || { sets: 3, reps: 10, load: null, rest: 90 }, pi?.key));
+    s.items.push(mkItem(ex.id));
     save(); rerender(); toast(`${ex.name} added`);
   } else if (el.id === 'import' && el.files[0]) {
     el.files[0].text().then(t => {
       const d = JSON.parse(t);
       validateBackup(d);
       if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
-      S = Object.assign({ v: 1, sessions: [], active: null, targets: {}, targetLog: [], notes: {} }, d);
+      S = migrate(Object.assign(emptyState(), { v: 1 }, d));
       if (S.active && !sess(S.active)) S.active = null;
       save(); go('#/');
       toast('Backup imported');

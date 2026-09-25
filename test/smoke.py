@@ -14,7 +14,8 @@ try:
         pg.on('dialog', lambda d: d.accept())
         pg.goto('http://localhost:8765/')
         pg.screenshot(path='/tmp/gym-home.png', full_page=True)
-        pg.click('[data-a=start][data-p=A]')
+        pg.click('[data-a=preset][data-p=A]')
+        pg.click('[data-a=start]')
         # tick every set of first exercise, change weight on first set
         pg.fill('[data-f=set][data-i="0"][data-j="0"][data-k=w]', '8')
         for j in range(3):
@@ -27,7 +28,7 @@ try:
         # fake it being an older session, then do another visit of A
         pg.evaluate("""() => { const s = JSON.parse(localStorage['gym.v1']); s.sessions[0].start -= 3*864e5; s.sessions[0].end -= 3*864e5; localStorage['gym.v1'] = JSON.stringify(s); }""")
         pg.goto('http://localhost:8765/#/'); pg.reload()
-        pg.click('[data-a=start][data-p=A]')
+        pg.click('[data-a=preset][data-p=A]'); pg.click('[data-a=start]')
         pg.screenshot(path='/tmp/gym-session2.png', full_page=True)
         n = pg.locator('.sug').count()
         print('suggestions shown:', n)
@@ -39,11 +40,22 @@ try:
         pg.goto('http://localhost:8765/#/ex/goblet-step-up')
         pg.screenshot(path='/tmp/gym-ex.png', full_page=True)
         pg.goto('http://localhost:8765/#/progress'); pg.screenshot(path='/tmp/gym-progress.png', full_page=True)
-        pg.goto('http://localhost:8765/#/plan/A'); pg.screenshot(path='/tmp/gym-plan.png', full_page=True)
+        pg.goto('http://localhost:8765/#/targets'); pg.screenshot(path='/tmp/gym-targets.png', full_page=True)
+        # mix & match: balanced pick + manual toggle, superset partners kept adjacent
+        pg.goto('http://localhost:8765/#/')
+        pg.click('[data-a=balanced]')
+        pg.click('[data-f=pick][value=face-pull]'); pg.click('[data-f=pick][value=seated-cable-row]')
+        pg.screenshot(path='/tmp/gym-builder.png', full_page=True)
+        draft = pg.evaluate("JSON.parse(localStorage['gym.v1']).draft"); print('draft:', draft)
+        pg.click('[data-a=start]')
+        items = pg.evaluate("(() => { const s = JSON.parse(localStorage['gym.v1']); return s.sessions.find(x => x.id === s.active).items.map(i => i.ex); })()")
+        print('session:', items)
+        i = items.index('face-pull'); assert abs(i - items.index('seated-cable-row')) == 1
+        pg.click('[data-a=finish]')
         print('targets:', pg.evaluate("localStorage['gym.v1'] && JSON.parse(localStorage['gym.v1']).targets"))
         # narrow phone: reps input must fit two digits
         pg.set_viewport_size({'width': 320, 'height': 700})
-        pg.goto('http://localhost:8765/#/'); pg.click('[data-a=start][data-p=A]')
+        pg.goto('http://localhost:8765/#/'); pg.click('[data-a=preset][data-p=A]'); pg.click('[data-a=start]')
         pg.wait_for_selector('.card.ex'); print(pg.url, pg.locator('.card.ex').count())
         w = pg.eval_on_selector('[data-f=set][data-i="5"][data-j="0"][data-k=r]', 'e => e.clientWidth')
         print('reps input width @320px:', w); assert w >= 30, w
