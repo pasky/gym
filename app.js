@@ -901,4 +901,6 @@ document.addEventListener('focusout', () => { if (SY.pendingApply) scheduleSync(
 window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });  // render() applies pendingScroll
 window.addEventListener('storage', e => { if (e.key === KEY && !VIEW) { S = store.load(); resnap(); rerender(); } });
 render();
-if (SY.cfg && !VIEW) syncNow(!!SY.cfg.dirty);   // on start: download; upload what an earlier run left unsynced
+if (SY.cfg && !VIEW) syncNow(!!SY.cfg.dirty);
+// fresh app files when online, cached copy when offline (see sw.js)
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { /* e.g. file:// */ });   // on start: download; upload what an earlier run left unsynced

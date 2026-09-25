@@ -33,7 +33,7 @@ Setup: create a repo (e.g. `gym-data`) and a token as described in the app under
 
 ## Development
 
-Plain HTML/CSS/JS with no build step: `index.html`, `style.css`, `catalog.js` (exercise data), `sync.js` (merge + GitHub API client), `app.js` (UI).
+Plain HTML/CSS/JS with no build step: `index.html`, `style.css`, `catalog.js` (exercise data), `sync.js` (merge + GitHub API client), `app.js` (UI), `sw.js` (service worker: always-fresh app files when online, cached copy offline).
 
 - `python3 test/smoke.py` runs a headless Playwright test of the logging flows.
 - `python3 test/sync_test.py` runs an end-to-end sync test against a fake GitHub API: multiple devices, 409 conflicts, deletions, targets/notes, share view, private client repos, bad tokens.

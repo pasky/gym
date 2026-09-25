@@ -87,6 +87,14 @@ try:
         w = pg.eval_on_selector('[data-f=set][data-i="0"][data-j="0"][data-k=r]', 'e => e.clientWidth')
         print('reps input width @320px:', w); assert w >= 30, w
         pg.screenshot(path='/tmp/gym-narrow.png')
+        # service worker: app opens offline, and serves updated files when online
+        pg.evaluate("navigator.serviceWorker.ready")
+        pg.reload(); pg.wait_for_selector('#main')
+        pg.context.set_offline(True)
+        pg.reload(); pg.wait_for_selector('.pick, .card')
+        print('offline reload renders:', pg.locator('#main').inner_text()[:40].replace(chr(10), ' '))
+        assert pg.locator('#nav a').count() == 4
+        pg.context.set_offline(False)
         # invalid import must not clobber data
         before = pg.evaluate("localStorage['gym.v1']")
         pg.goto(URL + '#/data')
