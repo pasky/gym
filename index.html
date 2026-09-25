@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f4d2e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Gym log</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏋️</text></svg>">
+<link rel="stylesheet" href="style.css?v=dev">
+</head>
+<body>
+<header id="top"><a href="#/">🏋️ Gym log</a></header>
+<main id="main"></main>
+<div id="rest" hidden>
+  <div class="bar"></div>
+  <span>Rest</span><b class="t"></b>
+  <button data-a="rest-add">+15 s</button><button data-a="rest-skip">Skip</button>
+</div>
+<div id="toast"></div>
+<nav id="nav">
+  <a href="#/">🏠<span>Visit</span><i class="dot" hidden></i></a>
+  <a href="#/progress">📈<span>Progress</span></a>
+  <a href="#/data">💾<span>Data</span></a>
+</nav>
+<script src="catalog.js?v=dev"></script>
+<script src="app.js?v=dev"></script>
+</body>
+</html>
