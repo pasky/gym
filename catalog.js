@@ -130,6 +130,13 @@ window.CATALOG = {
       primary: ['Obliques', 'Glute med'], secondary: ['Quadratus lumborum', 'Transverse abdominis', 'Serratus', 'Rotator cuff'],
       tips: ['Elbow right under the shoulder, push the floor away.', 'Hips stacked; at the top, knee–hip–shoulder in one line.', 'Lift from the side waist, lower with control. Tap, don\'t flop.'],
     },
+    {
+      id: 'machine-shoulder-press', group: 'shoulders', target: { sets: 3, reps: 10, load: 10, rest: 90 },
+      name: 'Shoulder press (machine)', detail: 'Technogym machine #65, seated',
+      img: 'img/ex/machine-shoulder-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
+      primary: ['Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Chest'],
+      tips: ['Set the seat so the handles start at about shoulder height.', 'Back flat against the pad, core braced; don\'t shrug.', 'Press up without slamming the elbows locked, lower slowly to shoulder level.'],
+    },
   ],
   // The trainer's original sheets (shown on the Data tab). Visits can mix any exercises.
   plans: [
