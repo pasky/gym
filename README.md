@@ -14,7 +14,7 @@ Everything is saved in the browser on every change. Syncing is optional.
 
 The log can live as one JSON file (`gym.json`) in a GitHub repo, written through GitHub's API straight from the browser:
 
-- **Several devices:** sync runs when the app opens, after changes, on Finish, and when the app goes to the background. Devices merge rather than overwrite each other: every visit, target and note carries a modification time, and deletions leave a marker. GitHub rejects writes based on a stale version (409), so the app re-reads, merges and retries.
+- **Several devices:** the app *downloads* other devices' changes when it opens or resumes, which makes no commits. It *uploads*, making one commit, only when you finish a visit, when it starts with unsynced changes, after 10 minutes without edits, or on *Sync now*. Devices merge rather than overwrite each other: every visit, target and note carries a modification time, and deletions leave a marker. GitHub rejects writes based on a stale version (409), so the app re-reads, merges and retries.
 - **History:** every sync is a commit.
 - **Sharing:** *Sync → Copy share link* gives `…/#/view/owner/repo`, a read-only view for anyone if the repo is public. A viewer can also *Copy into my browser* to play with a copy.
 - **Least privilege:** use a *fine-grained token* limited to that one repo with only *Contents: read and write*. It can't touch anything else in the account. The token stays in the browser's localStorage and is never part of the log data or exports.

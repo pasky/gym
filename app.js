@@ -55,7 +55,7 @@ function save() {
     if (snap.get(x.id) !== j) { x.u = nextU(sessU(x)); snap.set(x.id, j); }
   }
   store.save(S);
-  scheduleSync();
+  markDirty();
 }
 function deleteSession(x) {
   S.sessions = S.sessions.filter(y => y !== x);
@@ -248,11 +248,24 @@ function device() {
   }
   return d;
 }
-function scheduleSync(ms = 20000) {
+// Uploads make commits, so they're rare: on Finish, on app start with unsynced changes, after
+// IDLE_MS without edits, or on demand. Downloads (no commits) happen on start and on resume.
+const IDLE_MS = 10 * 60 * 1000;
+function scheduleSync(ms, push = false) {
   if (!SY.cfg || VIEW) return;
   clearTimeout(SY.timer);
-  SY.timer = setTimeout(syncNow, ms);
+  SY.timer = setTimeout(() => syncNow(push), ms);
 }
+// local changes not uploaded yet: cfg.dirty counts edits, persisted so a restart still knows
+function markDirty() {
+  if (!SY.cfg || VIEW) return;
+  SY.cfg.dirty = (SY.cfg.dirty || 0) + 1;
+  SY.cfg.lastEdit = Date.now();
+  syncCfgSave();
+  scheduleSync(SY.idleMs ?? IDLE_MS, true);
+  if (SY.cfg.dirty === 1) syncBadge();
+}
+const idleLongEnough = () => SY.cfg?.dirty && Date.now() - (SY.cfg.lastEdit || 0) >= (SY.idleMs ?? IDLE_MS);
 function applyMerged(merged) {
   if (VIEW) return;
   const before = canon(syncPart(S));
@@ -263,12 +276,13 @@ function applyMerged(merged) {
   store.save(S);
   if (canon(syncPart(S)) !== before) rerender();
 }
-// pull, merge, push; retried on concurrent writes (GitHub rejects writes based on a stale sha)
-async function syncNow() {
+// pull and merge; with push, also upload if the merged log differs from GitHub's.
+// Uploads are retried on concurrent writes (GitHub rejects writes based on a stale sha).
+async function syncNow(push = true) {
   if (!SY.cfg || VIEW) return;
-  if (SY.busy) { SY.again = true; return; }
+  if (SY.busy) { SY.again = true; SY.againPush ||= push; return; }
   clearTimeout(SY.timer);
-  const cfg = SY.cfg, gen = SY.gen;
+  const cfg = SY.cfg, gen = SY.gen, seq = cfg.dirty || 0;
   const stale = () => VIEW || SY.cfg !== cfg || SY.gen !== gen;
   SY.busy = true; syncBadge();
   try {
@@ -283,35 +297,39 @@ async function syncNow() {
       const defer = editing();
       if (defer) SY.pendingApply = true; else { SY.pendingApply = false; applyMerged(merged); }
       const out = defer ? merged : S;
-      if (rs && canon(syncPart(out)) === canon(syncPart(rs))) { cfg.sha = remote.sha; break; }
+      if (rs && canon(syncPart(out)) === canon(syncPart(rs))) { cfg.sha = remote.sha; if (cfg.dirty === seq) cfg.dirty = 0; break; }
+      if (!push) { if (cfg.dirty) scheduleSync(Math.max(0, (cfg.lastEdit || 0) + (SY.idleMs ?? IDLE_MS) - Date.now()), true); break; }
       const w = await ghWrite(cfg, syncPart(out), remote?.sha, `gym: sync from ${device()}`);
       if (stale()) return;
       if (w.conflict) continue;
       cfg.sha = w.sha;
+      if (cfg.dirty === seq) cfg.dirty = 0;   // edits made during the upload stay dirty
       break;
     }
     cfg.last = Date.now(); SY.err = null;
   } catch (e) {
     if (stale()) return;
     SY.err = e.message || String(e);
-    if (![401, 403, 404].includes(e.status)) scheduleSync(60000);   // transient: retry later
+    if (![401, 403, 404].includes(e.status)) scheduleSync(60000, push);   // transient: retry later
   } finally {
     SY.busy = false;
     if (SY.cfg) syncCfgSave();
     syncBadge();
-    if (SY.again) { SY.again = false; scheduleSync(1000); }
+    if (SY.again) { const p = SY.againPush; SY.again = SY.againPush = false; scheduleSync(1000, p); }
   }
 }
 function syncBadge() {
   const el = $('#syncst');
   if (!el) return;
-  el.textContent = VIEW ? '👀' : !SY.cfg ? '' : SY.busy ? '⟳' : SY.err ? '⚠️ sync' : '☁️';
-  el.title = VIEW ? `Viewing ${VIEW.repo}` : !SY.cfg ? '' : SY.err ? SY.err : `Synced ${SY.cfg.last ? fmtT(SY.cfg.last) : ''}`;
+  el.textContent = VIEW ? '👀' : !SY.cfg ? '' : SY.busy ? '⟳' : SY.err ? '⚠️ sync' : SY.cfg.dirty ? '☁️•' : '☁️';
+  el.title = VIEW ? `Viewing ${VIEW.repo}` : !SY.cfg ? '' : SY.err ? SY.err : SY.cfg.dirty ? 'Changes not uploaded yet' : `Synced ${SY.cfg.last ? fmtT(SY.cfg.last) : ''}`;
   if ((location.hash || '').startsWith('#/data') && !document.activeElement?.matches('input,textarea')) { const st = $('#syncstatus'); if (st) st.innerHTML = syncStatusHtml(); }
 }
 function syncStatusHtml() {
   if (!SY.cfg) return '';
-  return SY.busy ? 'Syncing…' : SY.err ? `<span class="down">⚠️ ${h(SY.err)}</span>` : SY.cfg.last ? `Last synced ${fmtD(SY.cfg.last)} ${fmtT(SY.cfg.last)} ✓` : 'Not synced yet';
+  const last = SY.cfg.last ? `Last synced ${fmtD(SY.cfg.last)} ${fmtT(SY.cfg.last)}` : 'Not synced yet';
+  return SY.busy ? 'Syncing…' : SY.err ? `<span class="down">⚠️ ${h(SY.err)}</span>`
+    : SY.cfg.dirty ? `${last}. Newer changes upload when you finish a visit, after 10 min without edits, or on "Sync now".` : `${last} ✓`;
 }
 // #/connect/<owner>/<repo>/<token>[/<path>]: a link from the trainer (or yourself) to set up sync
 function connectFromHash(parts) {
@@ -357,7 +375,7 @@ async function enterView(parts) {
 function exitView() {
   try { sessionStorage.removeItem(VIEW_KEY); } catch (e) { /* ignore */ }
   bumpGen(); VIEW = null; S = store.load(); resnap();
-  scheduleSync(500);
+  scheduleSync(500, false);
 }
 (function restoreView() {   // a reload keeps the view (per tab)
   let v = null;
@@ -736,7 +754,7 @@ const actions = {
     const open = s.items.flatMap(i => i.sets).filter(x => !x.done).length;
     if (open && !confirm(`${open} set(s) not ticked. They won't count. Finish anyway?`)) return;
     s.end = Date.now(); S.active = null; rest = null; tickRest();
-    save(); syncNow(); scrollTo(0, 0); render(); toast('Visit saved. Nice work!');
+    save(); syncNow(true); scrollTo(0, 0); render(); toast('Visit saved. Nice work!');
   },
   del: () => {
     const s = cur();
@@ -778,7 +796,7 @@ const actions = {
       : `Replace this browser's own log with a copy of ${who}?\n(Export a backup first if you need your current data.)`)) return;
     const copy = normalize(syncPart(S));
     exitView();
-    bumpGen(); S = copy; S.active = null; resnap(); store.save(S); scheduleSync(1000);
+    bumpGen(); S = copy; S.active = null; resnap(); store.save(S); markDirty();
     go('#/'); toast(`Copied ${who} into this browser`);
   },
   resettarget: b => { S.targets[b.dataset.ex] = { u: nextU(S.targets[b.dataset.ex]?.u) }; save(); rerender(); },
@@ -841,12 +859,13 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     tickRest();
     if (!document.activeElement?.matches('input,textarea')) rerender();
-    if (SY.cfg && Date.now() - (SY.cfg.last || 0) > 60000) syncNow();   // pick up other devices' changes
-  } else if (SY.timer) syncNow();   // leaving: push pending changes now
+    // pick up other devices' changes (a download: no commit); upload only if edits have idled long enough
+    if (SY.cfg && (Date.now() - (SY.cfg.last || 0) > 60000 || idleLongEnough())) syncNow(!!idleLongEnough());
+  }
 });
-window.addEventListener('online', () => syncNow());
-document.addEventListener('focusout', () => { if (SY.pendingApply) scheduleSync(300); });
+window.addEventListener('online', () => syncNow(!!idleLongEnough()));
+document.addEventListener('focusout', () => { if (SY.pendingApply) scheduleSync(300, false); });
 window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });  // render() applies pendingScroll
 window.addEventListener('storage', e => { if (e.key === KEY && !VIEW) { S = store.load(); resnap(); rerender(); } });
 render();
-if (SY.cfg && !VIEW) syncNow();
+if (SY.cfg && !VIEW) syncNow(!!SY.cfg.dirty);   // on start: download; upload what an earlier run left unsynced
