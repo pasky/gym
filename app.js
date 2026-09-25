@@ -351,7 +351,7 @@ async function enterView(parts) {
     location.replace('#/');
   } catch (e) {
     main.innerHTML = `<div class="card warn"><b>Could not load ${h(repoPath(cfg))}</b><p>${h(e.message)}</p>
-      <p><small>If it's a private repo, add a GitHub token with read access under Data → View someone's log.</small></p></div><p><a href="#/">Back</a></p>`;
+      <p><small>If it's a private repo, add a GitHub token with read access under Sync → View someone's log.</small></p></div><p><a href="#/">Back</a></p>`;
   }
 }
 function exitView() {
