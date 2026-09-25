@@ -41,6 +41,19 @@ try:
         pg.goto('http://localhost:8765/#/progress'); pg.screenshot(path='/tmp/gym-progress.png', full_page=True)
         pg.goto('http://localhost:8765/#/plan/A'); pg.screenshot(path='/tmp/gym-plan.png', full_page=True)
         print('targets:', pg.evaluate("localStorage['gym.v1'] && JSON.parse(localStorage['gym.v1']).targets"))
+        # narrow phone: reps input must fit two digits
+        pg.set_viewport_size({'width': 320, 'height': 700})
+        pg.goto('http://localhost:8765/#/'); pg.click('[data-a=start][data-p=A]')
+        pg.wait_for_selector('.card.ex'); print(pg.url, pg.locator('.card.ex').count())
+        w = pg.eval_on_selector('[data-f=set][data-i="5"][data-j="0"][data-k=r]', 'e => e.clientWidth')
+        print('reps input width @320px:', w); assert w >= 30, w
+        pg.screenshot(path='/tmp/gym-narrow.png')
+        # invalid import must not clobber data
+        before = pg.evaluate("localStorage['gym.v1']")
+        pg.goto('http://localhost:8765/#/data')
+        pg.set_input_files('#import', files=[{'name': 'b.json', 'mimeType': 'application/json', 'buffer': b'{"sessions":[null]}'}])
+        pg.wait_for_timeout(300)
+        assert pg.evaluate("localStorage['gym.v1']") == before, 'import clobbered data'
         b.close()
 finally:
     srv.terminate()

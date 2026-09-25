@@ -231,8 +231,8 @@ function itemCard(s, it, i) {
   const unit = ex.kind === 'hold' ? 'sec' : (ex.perSide ? 'reps/side' : 'reps');
   const rows = it.sets.map((x, j) => `<div class="set ${x.done ? 'done' : ''}">
       <span class="n">${j + 1}</span>
-      <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${t.load != null ? fmtN(t.load) : (ex.loadType === 'none' ? '–' : 'BW')}"><small>kg</small></label>
-      <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}"><small>${unit}</small></label>
+      <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${t.load != null ? fmtN(t.load) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
+      <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}" aria-label="${unit}"></label>
       <button class="tick" data-a="tick" data-i="${i}" data-j="${j}" aria-label="done">✓</button></div>`).join('');
   return `<div class="card ex ${it.ss ? 'inss' : ''} ${next?.ss && next.ss === it.ss ? 'ssfirst' : ''}">
     <div class="exhead">
@@ -244,7 +244,7 @@ function itemCard(s, it, i) {
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
     ${S.notes[ex.id] ? `<div class="last">📝 ${h(S.notes[ex.id])}</div>` : ''}
     ${sug}
-    <div class="sets">${rows}</div>
+    <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
     <div class="row tools">
       <span><button class="btn sm ghost" data-a="addset" data-i="${i}">+ set</button>
       <button class="btn sm ghost" data-a="rmset" data-i="${i}">− set</button></span>
@@ -335,7 +335,7 @@ function vPlan(id) {
 }
 
 function vSettings() {
-  const bytes = (localStorage.getItem(KEY) || '').length;
+  const bytes = JSON.stringify(S).length;
   return `<h1>Data</h1>
     <div class="card"><p>Everything is stored in this browser only (${(bytes / 1024).toFixed(1)} kB). Export a backup now and then!</p>
       <p><button class="btn" data-a="export">Export backup (JSON)</button></p>
@@ -343,6 +343,21 @@ function vSettings() {
     <div class="card"><p><button class="btn ghost danger" data-a="reset">Erase all data</button></p></div>
     <h2>Trainer sheets</h2>
     ${CATALOG.plans.filter(p => p.sheet).map(p => `<a href="${h(p.sheet)}" target="_blank"><img class="hero" src="${h(p.sheet)}" alt="${h(p.name)}"></a>`).join('')}`;
+}
+
+function validateBackup(d) {
+  const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+  const bad = m => { throw new Error('not a valid gym backup: ' + m); };
+  if (!isObj(d) || !Array.isArray(d.sessions)) bad('missing sessions');
+  for (const s of d.sessions) {
+    if (!isObj(s) || typeof s.id !== 'string' || typeof s.start !== 'number' || !Array.isArray(s.items)) bad('bad session');
+    for (const it of s.items) {
+      if (!isObj(it) || typeof it.ex !== 'string' || !isObj(it.target) || !Array.isArray(it.sets)) bad('bad session item');
+      if (!it.sets.every(isObj)) bad('bad set');
+    }
+  }
+  for (const k of ['targets', 'notes']) if (d[k] != null && !isObj(d[k])) bad(k);
+  if (d.targetLog != null && !Array.isArray(d.targetLog)) bad('targetLog');
 }
 
 // ---------- router ----------
@@ -408,10 +423,7 @@ const actions = {
   apply: b => {
     const s = cur(), it = s.items[+b.dataset.i], k = b.dataset.k, v = +b.dataset.v;
     if (it.key) setTarget(it.key, k, v);
-    if (!s.end) {
-      it.target[k] = v;
-      if (k === 'load') it.sets.forEach(x => { if (!x.done) x.w = null; });
-    }
+    if (!s.end) it.target[k] = v;
     save(); rerender(); toast(it.key ? 'Target updated in plan' : 'Target updated');
   },
   finish: () => {
@@ -439,7 +451,7 @@ const actions = {
   },
   reset: () => {
     if (confirm('Erase ALL sessions and settings from this browser?') && confirm('Really? This cannot be undone.')) {
-      localStorage.removeItem(KEY); S = store.load(); go('#/');
+      try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ } S = store.load(); go('#/');
     }
   },
 };
@@ -463,7 +475,9 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.f === 'target') {
     const v = num(el.value), k = el.dataset.k;
-    if (v == null && k !== 'load') { toast('Enter a number'); rerender(); return; }
+    const ok = k === 'load' ? (v == null || (isFinite(v) && v >= 0 && v < 1000))
+      : Number.isInteger(v) && v >= (k === 'rest' ? 0 : 1) && v <= { sets: 20, reps: 999, rest: 900 }[k];
+    if (!ok) { toast(k === 'load' ? 'Enter a weight in kg (or leave empty)' : `Enter a whole number for ${k}`); rerender(); return; }
     setTarget(el.dataset.key, k, v); save(); toast('Target saved');
   } else if (el.id === 'addex' && el.value) {
     const s = cur(), ex = exOf(el.value);
@@ -473,9 +487,11 @@ document.addEventListener('change', e => {
   } else if (el.id === 'import' && el.files[0]) {
     el.files[0].text().then(t => {
       const d = JSON.parse(t);
-      if (!Array.isArray(d.sessions)) throw new Error('not a gym backup');
+      validateBackup(d);
       if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
-      S = Object.assign(store.load(), d); save(); go('#/');
+      S = Object.assign({ v: 1, sessions: [], active: null, targets: {}, targetLog: [], notes: {} }, d);
+      if (S.active && !sess(S.active)) S.active = null;
+      save(); go('#/');
       toast('Backup imported');
     }).catch(err => alert('Import failed: ' + err.message));
   }
