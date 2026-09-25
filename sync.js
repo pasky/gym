@@ -20,6 +20,14 @@ function syncPart(s) {
 }
 
 const sessU = s => s.u || s.end || s.start || 0;
+// deterministic winner: newer revision, ties broken by content, so merge(a,b) == merge(b,a)
+function newer(x, y, ux, uy) {
+  if (ux !== uy) return ux > uy;
+  return canon(x) > canon(y);
+}
+// next revision for something last revised at `prev`: never goes backwards, even if `prev` came
+// from a device whose clock runs ahead
+const nextU = prev => Math.max(Date.now(), (prev || 0) + 1);
 
 function mergeStates(a, b) {
   const deleted = { ...(a.deleted || {}) };
@@ -27,12 +35,12 @@ function mergeStates(a, b) {
   const byId = new Map();
   for (const s of [...(a.sessions || []), ...(b.sessions || [])]) {
     const cur = byId.get(s.id);
-    if (!cur || sessU(s) > sessU(cur)) byId.set(s.id, s);
+    if (!cur || newer(s, cur, sessU(s), sessU(cur))) byId.set(s.id, s);
   }
   const sessions = [...byId.values()].filter(s => !((deleted[s.id] || 0) >= sessU(s))).sort((x, y) => x.start - y.start || (x.id < y.id ? -1 : 1));
   const lww = (x = {}, y = {}) => {
     const r = { ...x };
-    for (const [k, v] of Object.entries(y)) if (!r[k] || (v.u || 0) > (r[k].u || 0)) r[k] = v;
+    for (const [k, v] of Object.entries(y)) if (!r[k] || newer(v, r[k], v.u || 0, r[k].u || 0)) r[k] = v;
     return r;
   };
   const seen = new Set();
@@ -121,4 +129,44 @@ async function ghWrite(cfg, data, sha, message) {
   if (r.status === 409 || (r.status === 422 && !sha)) return { conflict: true };
   if (!r.ok) throw await ghError(r, 'Write');
   return { sha: (await r.json()).content.sha };
+}
+
+// ---------- schema sanitizer ----------
+// Everything loaded from outside (GitHub, someone's shared log, backup files, even our own storage)
+// goes through this: unknown fields are dropped, ids must be plain tokens, numbers must be numbers.
+// Together with HTML escaping at render time this keeps a malicious log from injecting markup.
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const numOr = (v, d = null) => (typeof v === 'number' && isFinite(v) ? v : d);
+const strOr = (v, max = 4000) => (typeof v === 'string' ? v.slice(0, max) : '');
+const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+function sanitizeTarget(t) {
+  const o = {};
+  if (!isObj(t)) return o;
+  for (const k of ['sets', 'reps', 'load', 'rest', 'u']) if (k in t) o[k] = numOr(t[k]);
+  return o;
+}
+function sanitizeState(x) {
+  const out = { v: numOr(x.v, 3), active: typeof x.active === 'string' && ID_RE.test(x.active) ? x.active : null };
+  out.sessions = (Array.isArray(x.sessions) ? x.sessions : []).filter(s => isObj(s) && ID_RE.test(s.id) && numOr(s.start) !== null).map(s => {
+    const o = { id: s.id, start: s.start, end: numOr(s.end), note: strOr(s.note), items: [] };
+    if (numOr(s.u) !== null) o.u = s.u;
+    if (typeof s.name === 'string') o.name = strOr(s.name, 100);
+    o.items = (Array.isArray(s.items) ? s.items : []).filter(it => isObj(it) && ID_RE.test(it.ex)).map(it => ({
+      ex: it.ex, ss: typeof it.ss === 'string' && ID_RE.test(it.ss) ? it.ss : '', note: strOr(it.note),
+      target: { sets: 3, reps: 10, load: null, rest: 90, ...sanitizeTarget(it.target) },
+      sets: (Array.isArray(it.sets) ? it.sets : []).filter(isObj).slice(0, 50).map(z => {
+        const q = { w: numOr(z.w), r: numOr(z.r), done: z.done === true };
+        if (numOr(z.at) !== null) q.at = z.at;
+        return q;
+      }),
+    }));
+    return o;
+  });
+  const idMap = (m, f) => Object.fromEntries(Object.entries(isObj(m) ? m : {}).filter(([k]) => ID_RE.test(k)).map(([k, v]) => [k, f(v)]).filter(([, v]) => v !== undefined));
+  out.deleted = idMap(x.deleted, v => numOr(v) ?? undefined);
+  out.targets = idMap(x.targets, v => (isObj(v) ? sanitizeTarget(v) : undefined));
+  out.notes = idMap(x.notes, v => (typeof v === 'string' ? { t: strOr(v), u: 0 } : isObj(v) ? { t: strOr(v.t), u: numOr(v.u, 0) } : undefined));
+  out.targetLog = (Array.isArray(x.targetLog) ? x.targetLog : []).filter(l => isObj(l) && ID_RE.test(l.ex) && ['sets', 'reps', 'load', 'rest'].includes(l.k) && numOr(l.t) !== null)
+    .map(l => ({ t: l.t, ex: l.ex, k: l.k, from: numOr(l.from), to: numOr(l.to) }));
+  return out;
 }

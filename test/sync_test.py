@@ -166,6 +166,7 @@ try:
         A.goto(BASE + '#/targets/lat-pulldown')
         A.fill('[data-f=target][data-ex=lat-pulldown][data-k=load]', '40'); A.press('[data-f=target][data-ex=lat-pulldown][data-k=load]', 'Tab')
         A.goto(BASE + '#/ex/lat-pulldown'); A.fill('[data-f=exnote]', 'seat 4')
+        A.evaluate('document.activeElement.blur()')
         sync(A); sync(B)
         check(state(B)['targets'].get('lat-pulldown', {}).get('load') == 40, 'target reached B')
         check(state(B)['notes'].get('lat-pulldown', {}).get('t') == 'seat 4', 'note reached B')
@@ -212,6 +213,74 @@ try:
         X.screenshot(path='/tmp/gym-sync-bad.png')
         A.goto(BASE + '#/data'); A.wait_for_selector('#syncstatus'); A.screenshot(path='/tmp/gym-sync-data.png', full_page=True)
         V.goto(BASE + '#/view/pasky/gym-data'); V.wait_for_selector('.viewbar'); V.screenshot(path='/tmp/gym-sync-view.png')
+
+        print('== hostile shared log (XSS)')
+        now = int(time.time() * 1000)
+        P = '<img src=x onerror="window.pwned=1">'
+        gh.repos['evil/log'] = {'private': False, 'files': {}}
+        gh.put_raw('evil/log', 'gym.json', {'format': 'gym-log', 'v': 3, 'deleted': {P: 1}, 'targetLog': [{'t': 1, 'ex': P, 'k': 'load', 'from': P, 'to': 1}],
+            'targets': {'lat-pulldown': {'load': P, 'sets': P}, P: {'load': 1}}, 'notes': {'lat-pulldown': {'t': P, 'u': 1}, P: {'t': 'x', 'u': 1}},
+            'sessions': [{'id': P, 'start': now, 'end': now, 'items': []},
+                         {'id': 'evilsess', 'start': now, 'end': now + 1000, 'note': P, 'name': P, 'items': [
+                             {'ex': P, 'target': {}, 'sets': []},
+                             {'ex': 'lat-pulldown', 'ss': P, 'note': P, 'target': {'sets': P, 'reps': P, 'load': P, 'rest': P},
+                              'sets': [{'w': P, 'r': P, 'done': True}, {'w': 30, 'r': 10, 'done': True}]}]}]})
+        E = device(browser, 'E')
+        E.goto(BASE + '#/view/evil/log'); E.wait_for_selector('.viewbar')
+        for route in ['#/', '#/s/evilsess', '#/ex/lat-pulldown', '#/targets', '#/progress']:
+            E.goto(BASE + route); E.wait_for_timeout(150)
+        check(E.evaluate('window.pwned') is None, 'no script ran from hostile log')
+        E.goto(BASE + '#/s/evilsess'); E.wait_for_selector('.card.ex')
+        check(E.locator('.card.ex').count() == 1, 'invalid exercise id dropped, valid one kept')
+
+        print('== viewing while own sync is in flight')
+        own_before = state(A)['sessions']
+        remote_before = gh.file('pasky/gym-data')
+        A.evaluate("() => { const f = window.fetch; window.fetch = (...a) => new Promise(r => setTimeout(() => r(f(...a)), 800)); syncNow(); }")
+        A.goto(BASE + '#/view/evil/log')   # same page, hash change
+        A.wait_for_selector('.viewbar'); A.wait_for_timeout(2500)
+        check('evilsess' not in A.evaluate("localStorage['gym.v1']"), "viewed log didn't leak into own storage")
+        check(gh.file('pasky/gym-data') == remote_before, "viewed log didn't get uploaded")
+        A.click('[data-a=view-exit]'); A.reload(); A.wait_for_selector('#main')
+        check(state(A)['sessions'] == own_before, 'own log intact after exiting view')
+
+        print('== clock skew: remote revision from a clock 2 min ahead')
+        d = gh.file('pasky/gym-data'); sk = d['sessions'][0]; sk['u'] = now + 120000; sk['note'] = 'from fast clock'
+        gh.put_raw('pasky/gym-data', 'gym.json', d)
+        sync(A)
+        A.goto(BASE + f"#/s/{sk['id']}"); A.fill('[data-f=snote]', 'edited here'); A.locator('[data-f=snote]').blur()
+        sync(A)
+        got = [x for x in gh.file('pasky/gym-data')['sessions'] if x['id'] == sk['id']][0]
+        check(got['note'] == 'edited here', 'local edit wins over a revision from a fast clock')
+        A.goto(BASE + f"#/s/{sk['id']}"); A.click('[data-a=del]'); sync(A); sync(B)
+        check(sk['id'] not in [x['id'] for x in state(B)['sessions']], 'deletion wins over a fast-clock revision')
+
+        print('== merge is order-independent on ties')
+        same = A.evaluate("""() => {
+            const mk = (note) => ({ v: 3, sessions: [{ id: 'tie', start: 1, end: 2, u: 5, note, items: [] }], deleted: {}, targets: { x: { load: note.length, u: 7 } }, notes: { x: { t: note, u: 9 } }, targetLog: [] });
+            const a = mk('aaa'), b = mk('bbbb');
+            return canon(syncPart(mergeStates(a, b))) === canon(syncPart(mergeStates(b, a)));
+        }""")
+        check(same, 'mergeStates(a,b) == mergeStates(b,a)')
+
+        print('== visit finished on another device')
+        A.goto(BASE + '#/'); A.click('[data-a=pick][data-ex=face-pull]'); A.wait_for_selector('#item-0')
+        A.click('[data-a=tick][data-i="0"][data-j="0"]'); A.goto(BASE + '#/'); sync(A)
+        aid = state(A)['active']
+        d = gh.file('pasky/gym-data'); x = [z for z in d['sessions'] if z['id'] == aid][0]
+        x['end'] = now + 5000; x['u'] = x['u'] + 10; gh.put_raw('pasky/gym-data', 'gym.json', d)
+        sync(A)
+        check(state(A)['active'] is None, 'active visit cleared when finished elsewhere')
+
+        print('== no state swap under a focused field')
+        A.goto(BASE + '#/'); A.click('[data-a=pick][data-ex=goblet-step-up]'); A.wait_for_selector('#item-0'); sync(A)
+        d = gh.file('pasky/gym-data'); d['sessions'].append({'id': 'focusx', 'start': now, 'end': now + 1, 'u': now + 1, 'note': '', 'items': []})
+        gh.put_raw('pasky/gym-data', 'gym.json', d)
+        A.focus('[data-f=set][data-i="0"][data-j="0"][data-k=w]')
+        sync(A)
+        check('focusx' not in [z['id'] for z in state(A)['sessions']], 'sync postponed while editing')
+        A.locator('[data-f=set][data-i="0"][data-j="0"][data-k=w]').blur(); A.wait_for_timeout(3500); sync(A)
+        check('focusx' in [z['id'] for z in state(A)['sessions']], 'applied after editing stops')
 
         print('commits:', len(gh.commits), set(m for _, m in gh.commits))
         browser.close()

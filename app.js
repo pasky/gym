@@ -38,9 +38,7 @@ function migrate(s) {
     s.notes = Object.fromEntries(Object.entries(s.notes || {}).map(([k, v]) => [k, typeof v === 'string' ? { t: v, u: 0 } : v]));
     s.v = 3;
   }
-  s.deleted ||= {};
-  delete s.draft;
-  return s;
+  return sanitizeState(s);
 }
 let S = store.load();
 let VIEW = null;   // read-only view of someone else's log: { repo, path, at }; S then holds their data
@@ -52,17 +50,16 @@ function resnap() { snap = new Map(S.sessions.map(x => [x.id, sessJSON(x)])); }
 resnap();
 function save() {
   if (VIEW) return;
-  const now = Date.now();
   for (const x of S.sessions) {
     const j = sessJSON(x);
-    if (snap.get(x.id) !== j) { x.u = now; snap.set(x.id, j); }
+    if (snap.get(x.id) !== j) { x.u = nextU(x.u); snap.set(x.id, j); }
   }
   store.save(S);
   scheduleSync();
 }
 function deleteSession(x) {
   S.sessions = S.sessions.filter(y => y !== x);
-  S.deleted[x.id] = Date.now();
+  S.deleted[x.id] = nextU(Math.max(x.u || 0, x.end || 0, x.start || 0));
   if (S.active === x.id) S.active = null;
 }
 
@@ -76,7 +73,7 @@ const noteOf = exId => S.notes[exId]?.t || '';
 function setTarget(exId, k, v) {
   const cur = targetOf(exId);
   if (cur[k] === v) return;
-  S.targets[exId] = { ...(S.targets[exId] || {}), [k]: v, u: Date.now() };
+  S.targets[exId] = { ...(S.targets[exId] || {}), [k]: v, u: nextU(S.targets[exId]?.u) };
   S.targetLog.push({ t: Date.now(), ex: exId, k, from: cur[k], to: v });
 }
 // exercises bucketed by muscle group, in catalog order
@@ -232,7 +229,11 @@ const SYNC_KEY = 'gym.sync', VIEW_KEY = 'gym.view', VTOKEN_KEY = 'gym.viewtoken'
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } };
 // cfg: { repo, path, token, sha?, last? } (device-local: never exported or synced)
-const SY = { cfg: lsGet(SYNC_KEY), busy: false, err: null, again: false, timer: null };
+const SY = { cfg: lsGet(SYNC_KEY), busy: false, err: null, again: false, timer: null, gen: 0 };
+// bumped on anything that changes what S means or where it syncs (view enter/exit, connect,
+// disconnect, copy): an in-flight sync then drops its result instead of mixing logs
+const bumpGen = () => { SY.gen++; };
+const editing = () => !!document.activeElement?.closest?.('#main') && document.activeElement.matches('input,textarea');
 const syncCfgSave = () => lsSet(SYNC_KEY, SY.cfg);
 const normalize = data => { const x = migrate(Object.assign(emptyState(), { v: 1 }, JSON.parse(JSON.stringify(data)))); x.active = null; return x; };
 const appUrl = () => location.origin + location.pathname;
@@ -253,34 +254,42 @@ function scheduleSync(ms = 20000) {
   SY.timer = setTimeout(syncNow, ms);
 }
 function applyMerged(merged) {
+  if (VIEW) return;
   const before = canon(syncPart(S));
   const active = S.active;
   S = merged;
-  S.active = active && sess(active) ? active : null;
+  S.active = active && sess(active) && !sess(active).end ? active : null;   // finished elsewhere -> not running here
   resnap();
   store.save(S);
-  if (canon(syncPart(S)) !== before && !document.activeElement?.matches('input,textarea')) rerender();
+  if (canon(syncPart(S)) !== before) rerender();
 }
 // pull, merge, push; retried on concurrent writes (GitHub rejects writes based on a stale sha)
 async function syncNow() {
   if (!SY.cfg || VIEW) return;
   if (SY.busy) { SY.again = true; return; }
   clearTimeout(SY.timer);
+  const cfg = SY.cfg, gen = SY.gen;
+  const stale = () => VIEW || SY.cfg !== cfg || SY.gen !== gen;
   SY.busy = true; syncBadge();
   try {
     for (let attempt = 0; ; attempt++) {
       if (attempt > 4) throw new SyncError('The log keeps changing elsewhere; will retry', 0);
-      const remote = await ghRead(SY.cfg);
+      const remote = await ghRead(cfg);
+      if (stale()) return;
+      // don't swap state under a field being edited (DOM indices would point into the new state)
+      if (editing()) { scheduleSync(3000); return; }
       const rs = remote && normalize(remote.data);
       applyMerged(rs ? mergeStates(S, rs) : S);
-      if (rs && canon(syncPart(S)) === canon(syncPart(rs))) { SY.cfg.sha = remote.sha; break; }
-      const w = await ghWrite(SY.cfg, syncPart(S), remote?.sha, `gym: sync from ${device()}`);
+      if (rs && canon(syncPart(S)) === canon(syncPart(rs))) { cfg.sha = remote.sha; break; }
+      const w = await ghWrite(cfg, syncPart(S), remote?.sha, `gym: sync from ${device()}`);
+      if (stale()) return;
       if (w.conflict) continue;
-      SY.cfg.sha = w.sha;
+      cfg.sha = w.sha;
       break;
     }
-    SY.cfg.last = Date.now(); SY.err = null;
+    cfg.last = Date.now(); SY.err = null;
   } catch (e) {
+    if (stale()) return;
     SY.err = e.message || String(e);
     if (![401, 403, 404].includes(e.status)) scheduleSync(60000);   // transient: retry later
   } finally {
@@ -311,7 +320,7 @@ function connectTo(cfg) {
   if (!validRepo(cfg.repo) || !validPath(cfg.path) || !/^[A-Za-z0-9_]{20,255}$/.test(cfg.token)) { render(); toast('Invalid repo, file or token'); return; }
   if (SY.cfg && (SY.cfg.repo !== cfg.repo || SY.cfg.path !== cfg.path)
     && !confirm(`This browser syncs with ${repoPath(SY.cfg)}. Switch to ${repoPath(cfg)}?\nThe log in this browser will be merged into it.`)) { render(); return; }
-  SY.cfg = cfg; SY.err = null; syncCfgSave();
+  bumpGen(); SY.cfg = cfg; SY.err = null; syncCfgSave();
   render();
   toast('Connecting…');
   syncNow().then(() => toast(SY.err ? 'Sync failed: ' + SY.err : 'Connected and synced ✓'));
@@ -331,6 +340,7 @@ async function enterView(parts) {
       if (e.status === 404 && tk) r = await ghRead({ ...cfg, token: tk }); else throw e;
     }
     if (!r) throw new Error('there is no gym log in that repo yet');
+    bumpGen(); clearTimeout(SY.timer);
     VIEW = { repo: cfg.repo, path: cfg.path, at: Date.now() };
     try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ ...VIEW, data: r.data })); } catch (e) { /* ignore */ }
     S = normalize(r.data);
@@ -343,7 +353,8 @@ async function enterView(parts) {
 }
 function exitView() {
   try { sessionStorage.removeItem(VIEW_KEY); } catch (e) { /* ignore */ }
-  VIEW = null; S = store.load(); resnap();
+  bumpGen(); VIEW = null; S = store.load(); resnap();
+  scheduleSync(500);
 }
 (function restoreView() {   // a reload keeps the view (per tab)
   let v = null;
@@ -734,7 +745,7 @@ const actions = {
   'sync-now': () => { SY.err = null; syncNow(); },
   disconnect: () => {
     if (!confirm(`Stop syncing with ${repoPath(SY.cfg)}? Your data stays in this browser and on GitHub.`)) return;
-    clearTimeout(SY.timer); SY.cfg = null; SY.err = null; syncCfgSave(); render();
+    bumpGen(); clearTimeout(SY.timer); SY.cfg = null; SY.err = null; syncCfgSave(); render();
   },
   'connect-form': () => connectTo({ repo: $('#c-repo').value.trim(), token: $('#c-token').value.trim(), path: $('#c-path').value.trim() || 'gym.json' }),
   copy: b => copyText(b.dataset.text, b.dataset.what),
@@ -764,10 +775,10 @@ const actions = {
       : `Replace this browser's own log with a copy of ${who}?\n(Export a backup first if you need your current data.)`)) return;
     const copy = normalize(syncPart(S));
     exitView();
-    S = copy; S.active = null; resnap(); store.save(S); scheduleSync(1000);
+    bumpGen(); S = copy; S.active = null; resnap(); store.save(S); scheduleSync(1000);
     go('#/'); toast(`Copied ${who} into this browser`);
   },
-  resettarget: b => { S.targets[b.dataset.ex] = { u: Date.now() }; save(); rerender(); },
+  resettarget: b => { S.targets[b.dataset.ex] = { u: nextU(S.targets[b.dataset.ex]?.u) }; save(); rerender(); },
   'rest-add': () => { if (rest) { rest.end += 15000; rest.total += 15; tickRest(); } },
   'rest-skip': () => { rest = null; tickRest(); },
   export: () => {
@@ -794,7 +805,7 @@ document.addEventListener('input', e => {
     x[el.dataset.k] = num(el.value);
   } else if (f === 'inote') cur().items[+el.dataset.i].note = el.value;
   else if (f === 'snote') cur().note = el.value;
-  else if (f === 'exnote') S.notes[el.dataset.ex] = { t: el.value, u: Date.now() };
+  else if (f === 'exnote') S.notes[el.dataset.ex] = { t: el.value, u: nextU(S.notes[el.dataset.ex]?.u) };
   else return;
   save();
 });
