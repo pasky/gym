@@ -1,10 +1,13 @@
 # Gym log sync storage: password-protected GET/PUT of JSON files via Apache mod_dav.
 # Generated from gym/server/gym-sync.conf.in by setup-webdav.sh. Do not edit by hand.
 #
-# Security model: every request needs a valid user AND must be GET/HEAD or PUT, so
-# unauthenticated clients never reach mod_dav, and DAV's XML methods (PROPFIND, LOCK, ...)
-# plus DELETE/MOVE/COPY/MKCOL are refused even for the authenticated user.
-# The directory lives outside any DocumentRoot, so .htaccess, SSI, CGI and PHP never apply to it.
+# Security model:
+#  - Every request needs a valid user AND must be GET/HEAD or PUT AND must name a plain
+#    "<letters/digits/_/->.json" file directly in the directory. So unauthenticated clients never
+#    reach mod_dav; DAV's XML methods (PROPFIND, LOCK, ...), DELETE/MOVE/COPY/MKCOL, directory
+#    listings, subpaths and executable-looking names (x.php, x.php.json, .htaccess) are refused.
+#  - Handlers are forced off, so even a globally configured handler (e.g. PHP) never runs here.
+#  - The directory is outside any DocumentRoot, AllowOverride None, Options None (no symlinks, SSI, CGI).
 
 Alias @URLPATH@ @DIR@
 <Directory @DIR@>
@@ -20,10 +23,15 @@ Alias @URLPATH@ @DIR@
     <RequireAll>
         Require valid-user
         Require method GET PUT
+        Require expr "%{REQUEST_URI} =~ m#^@URLPATH@/[A-Za-z0-9_-]{1,64}\.json$#"
     </RequireAll>
 
     LimitRequestBody 5242880
     ForceType application/json
+    SetHandler none
+    <FilesMatch ".">
+        SetHandler none
+    </FilesMatch>
     Header always set Cache-Control "no-store"
     Header always set X-Content-Type-Options "nosniff"
 </Directory>

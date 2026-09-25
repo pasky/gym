@@ -26,4 +26,4 @@ Issues found on the two sheets (`img/sheets/`). The corrected muscle lists are i
 
 - `sudo sh server/setup-webdav.sh` installs it (idempotent) and prints the generated password once. It also accepts `--reset-password` and `--uninstall`.
 - `sh server/test-local.sh` tests the same config template on a throwaway unprivileged Apache (port 18080). No root needed.
-- `sh server/check-webdav.sh URL [USER [PASS]]` verifies a live endpoint: unauthenticated requests get 401/403, and DAV/XML methods, DELETE/MOVE/COPY/MKCOL, directory listing and oversized uploads are refused.
+- `GYM_SYNC_PASS=... sh server/check-webdav.sh URL [USER]` verifies a live endpoint: unauthenticated requests get 401/403; DAV/XML methods, DELETE/MOVE/COPY/MKCOL, directory listing, non-`name.json` filenames (e.g. `x.php`, `.htaccess`) and oversized uploads are refused.

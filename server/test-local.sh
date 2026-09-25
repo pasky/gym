@@ -30,6 +30,7 @@ LoadModule dir_module $MOD/mod_dir.so
 LoadModule headers_module $MOD/mod_headers.so
 LoadModule dav_module $MOD/mod_dav.so
 LoadModule dav_fs_module $MOD/mod_dav_fs.so
+LoadModule status_module $MOD/mod_status.so
 TypesConfig /etc/mime.types
 DAVLockDB $T/lock/DAVLock
 # same defaults as Debian's apache2.conf
@@ -38,6 +39,18 @@ DAVLockDB $T/lock/DAVLock
     AllowOverride None
     Require all denied
 </Directory>
+<FilesMatch "^\.ht">
+    Require all denied
+</FilesMatch>
+# Simulate inherited executable handlers, like Debian's global PHP config
+# (<FilesMatch ".+\.ph(ar|p|tml)$"> SetHandler application/x-httpd-php). mod_status stands in
+# for PHP: if it ever runs, GETs return a status page instead of the stored file.
+<FilesMatch ".+\.ph(ar|p|tml)$">
+    SetHandler server-status
+</FilesMatch>
+<FilesMatch "\.json$">
+    SetHandler server-status
+</FilesMatch>
 DocumentRoot $T/docroot
 <VirtualHost 127.0.0.1:$PORT>
     DocumentRoot $T/docroot
@@ -49,7 +62,7 @@ EOF
 /usr/sbin/apache2 -f "$T/httpd.conf" -k start || { cat "$T/error.log"; exit 1; }
 sleep 1
 rc=0
-sh "$HERE/check-webdav.sh" "http://127.0.0.1:$PORT/gym-sync" gym testpass || rc=$?
+GYM_SYNC_PASS=testpass sh "$HERE/check-webdav.sh" "http://127.0.0.1:$PORT/gym-sync" gym || rc=$?
 echo "-- files written:"; ls -la "$T/data"
 [ $rc = 0 ] || { echo "-- error.log:"; tail -20 "$T/error.log"; }
 exit $rc
