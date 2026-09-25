@@ -51,6 +51,7 @@ DAVLockDB $T/lock/DAVLock
 <FilesMatch "\.json$">
     SetHandler server-status
 </FilesMatch>
+AddHandler server-status .json
 DocumentRoot $T/docroot
 <VirtualHost 127.0.0.1:$PORT>
     DocumentRoot $T/docroot

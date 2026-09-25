@@ -6,7 +6,8 @@
 #    "<letters/digits/_/->.json" file directly in the directory. So unauthenticated clients never
 #    reach mod_dav; DAV's XML methods (PROPFIND, LOCK, ...), DELETE/MOVE/COPY/MKCOL, directory
 #    listings, subpaths and executable-looking names (x.php, x.php.json, .htaccess) are refused.
-#  - Handlers are forced off, so even a globally configured handler (e.g. PHP) never runs here.
+#  - Handlers are forced off (SetHandler none + RemoveHandler .json), so even a globally configured
+#    handler (e.g. PHP via SetHandler or AddHandler) never runs here.
 #  - The directory is outside any DocumentRoot, AllowOverride None, Options None (no symlinks, SSI, CGI).
 
 Alias @URLPATH@ @DIR@
@@ -29,6 +30,7 @@ Alias @URLPATH@ @DIR@
     LimitRequestBody 5242880
     ForceType application/json
     SetHandler none
+    RemoveHandler .json
     <FilesMatch ".">
         SetHandler none
     </FilesMatch>

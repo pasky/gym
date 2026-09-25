@@ -1,15 +1,18 @@
 #!/bin/sh
 # Verify the gym-sync endpoint behaves as intended.
-#   check-webdav.sh BASE_URL [USER]
-#   GYM_SYNC_PASS=... check-webdav.sh BASE_URL [USER]   # also run authenticated checks
-# e.g. GYM_SYNC_PASS='secret' sh check-webdav.sh https://pasky.or.cz/gym-sync gym
-# The password is taken from the environment (never argv) and handed to curl via a private
-# netrc file, so it doesn't show up in `ps`. The authenticated checks write selftest.json and
+#   sh check-webdav.sh https://pasky.or.cz/gym-sync [USER]
+# Asks for the password (hidden; empty = only unauthenticated checks). Non-interactive callers
+# may pass it in the GYM_SYNC_PASS environment variable. It never goes on a command line (argv):
+# curl gets it via a private netrc file, so it doesn't show up in `ps`. The authenticated checks write selftest.json and
 # can't delete it (DELETE is denied); remove it on the server if you care.
 set -u
-BASE=${1:?usage: GYM_SYNC_PASS=... $0 BASE_URL [USER]}
+BASE=${1:?usage: $0 BASE_URL [USER]}
 USER=${2:-gym}
 PASS=${GYM_SYNC_PASS:-}
+if [ -z "$PASS" ] && [ -t 0 ]; then
+	printf 'Password for %s (empty to skip authenticated checks): ' "$USER"
+	stty -echo; read -r PASS || PASS=; stty echo; echo
+fi
 PREFIX=${BASE#*://}; PREFIX=/${PREFIX#*/}   # URL path of the endpoint, e.g. /gym-sync
 fail=0
 

@@ -4,7 +4,6 @@
 #
 #   sudo sh server/setup-webdav.sh                  # first run: generates and prints a password
 #   sudo sh server/setup-webdav.sh --reset-password # new password
-#   sudo GYM_SYNC_PASS=... sh server/setup-webdav.sh # re-run incl. authenticated live checks
 #   sudo sh server/setup-webdav.sh --uninstall      # remove the Include (keeps data and files)
 #
 # What it does:
@@ -15,7 +14,8 @@
 #   - adds "Include /etc/apache2/gym-sync.conf" to the pasky.or.cz HTTPS vhost
 #   - enables mod_dav, mod_dav_fs, mod_headers; configtest; graceful reload
 #     (on any failure before the reload, the previous vhost/snippet are restored and re-tested)
-#   - runs check-webdav.sh against the live endpoint; exits non-zero if it fails
+#   - runs check-webdav.sh against the live endpoint (asks for the password on re-runs);
+#     exits non-zero if it fails
 set -eu
 
 HOST=pasky.or.cz
@@ -88,6 +88,7 @@ rollback() {
 	rm -rf "$BK"
 }
 trap rollback EXIT
+trap 'exit 1' HUP INT TERM   # dash skips EXIT traps on signals; route them through exit
 
 tmp=$(mktemp)
 sed -e "s|@URLPATH@|$URLPATH|g" -e "s|@DIR@|$DIR|g" -e "s|@HTPASSWD@|$HTPASSWD|g" "$HERE/gym-sync.conf.in" > "$tmp"
@@ -106,7 +107,7 @@ a2enmod -q dav dav_fs headers
 apache2ctl configtest || die "apache2ctl configtest failed"
 systemctl reload apache2
 applied=1
-trap - EXIT
+trap - EXIT HUP INT TERM
 [ -n "$VHOST_EDITED" ] && cp -a "$BK/vhost" "$VHOST.bak-gym-sync-$STAMP" && echo "vhost edited (backup: $VHOST.bak-gym-sync-$STAMP)"
 rm -rf "$BK"
 sleep 2
@@ -114,10 +115,8 @@ sleep 2
 # 5. verify the live endpoint
 echo
 echo "== Checking https://$HOST$URLPATH"
-CHECK_PASS=${NEWPASS:-${GYM_SYNC_PASS:-}}
-[ -z "$CHECK_PASS" ] && echo "(password unchanged: set GYM_SYNC_PASS=... to also run the authenticated checks)"
 rc=0
-GYM_SYNC_PASS=$CHECK_PASS sh "$HERE/check-webdav.sh" "https://$HOST$URLPATH" "$DAVUSER" || rc=$?
+GYM_SYNC_PASS=$NEWPASS sh "$HERE/check-webdav.sh" "https://$HOST$URLPATH" "$DAVUSER" || rc=$?
 rm -f "$DIR/selftest.json"
 
 echo
