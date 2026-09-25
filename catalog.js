@@ -11,6 +11,7 @@
 //   loadType: 'kg' (external load), 'bw' (bodyweight, optional added kg), 'none'
 //   step: default progression increment (kg, or seconds for holds)
 //   primary/secondary: atomic muscle names (reuse existing spellings; they're aggregated in the balance view)
+//   breath: breathing cue (rule: exhale on the effort, inhale on the way back; keep breathing in holds)
 //   sheet: muscles as listed on the trainer's sheet; review: notes from checking the sheet
 window.CATALOG = {
   groups: [
@@ -29,6 +30,7 @@ window.CATALOG = {
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Calves', 'Core'],
       sheet: 'Quads, glutes, calves',
       review: 'Calves are only a minor stabiliser, not a main focus. The diagram highlights hamstrings heavily, barely shows glutes, and leaves calves grey even though it lists them.',
+      breath: 'Exhale as you drive up onto the box · inhale as you step back down.',
       tips: ['Drive through the whole foot.', 'Keep your chest up and core tight.', 'Control the movement.'],
     },
     {
@@ -38,6 +40,7 @@ window.CATALOG = {
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Core'],
       sheet: 'Quads, glutes',
       review: 'Muscle list is correct. The diagram over-emphasises hamstrings vs glutes. "Drive through your heels" is a dated cue: use even whole-foot pressure, and touch the box without dropping onto it.',
+      breath: 'Inhale and brace as you sit back to the box · exhale as you stand up.',
       tips: ['Sit back and touch the box.', 'Drive through your heels.', 'Keep your core tight and chest up.'],
     },
     {
@@ -47,6 +50,7 @@ window.CATALOG = {
       primary: ['Lats', 'Rhomboids', 'Mid traps'], secondary: ['Rear delts', 'Biceps', 'Core'],
       sheet: 'Back, rear delts (shared with face pull)',
       review: 'Diagram is wrong: it highlights the front waist/abdomen instead of the back, and the mid-back is left blank. The row mainly works lats + mid-back; rear delts are secondary.',
+      breath: 'Exhale as you pull the handle to your belly · inhale as your arms go forward again.',
       tips: ['Pull your shoulder blades back and down.', 'Squeeze your back at the end.', 'Control the movement.'],
     },
     {
@@ -56,6 +60,7 @@ window.CATALOG = {
       primary: ['Rear delts', 'Rhomboids', 'Mid traps', 'Rotator cuff'], secondary: ['Biceps'],
       sheet: 'Back, rear delts (shared with seated row)',
       review: 'Front-view diagram highlights chest and front delts. That\'s wrong, since face pulls work the opposite side. Scapular retractors are under-highlighted. The sheet gives no rest for the superset (~90 s after the face pull is assumed).',
+      breath: 'Exhale as you pull the rope to your face · inhale as you return.',
       tips: ['Pull towards your face.', 'Keep elbows high (comfortably).', 'Squeeze your shoulder blades.'],
     },
     {
@@ -65,6 +70,7 @@ window.CATALOG = {
       primary: ['Biceps', 'Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Core'],
       sheet: 'Biceps, shoulders',
       review: 'Triceps are missing from the list, even though they lock out the press. Shoulders are only faintly highlighted. "2x 6 kg each hand" means one 6 kg dumbbell in each hand.',
+      breath: 'Exhale as you curl up · inhale at the shoulders · exhale as you press overhead · inhale as you lower.',
       tips: ['Curl the weights up.', 'Press overhead with control.', 'Keep your core tight.'],
     },
     {
@@ -74,6 +80,7 @@ window.CATALOG = {
       primary: ['Obliques'], secondary: ['Rectus abdominis', 'Transverse abdominis', 'Hip rotators'],
       sheet: 'Core, obliques',
       review: 'Diagram is wrong: it highlights the front hips/upper thighs instead of the obliques/abs. 7.5 kg is presumably the cable stack, and the med ball weight isn\'t specified. The two photos show the cable from opposite sides (one per side).',
+      breath: 'Exhale as you rotate away from the cable · inhale as you come back to the middle.',
       tips: ['Rotate your torso, not your arms.', 'Keep the med ball at chest level.', 'Control the movement and squeeze your core.'],
     },
     // ---- Training B ----
@@ -84,6 +91,7 @@ window.CATALOG = {
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Foot arch', 'Calves', 'Core'],
       sheet: 'Quads, glutes, adductors',
       review: 'Adductors are secondary at best. The "inside ankle high / outside of the foot" cue targets the foot arch and ankle (tibialis posterior), which isn\'t shown. Glutes aren\'t highlighted. In the photo the rear knee seems to rest on the floor; hover it to keep the hold loaded. Presumably 20 s per side. Don\'t roll fully onto the outer edge; keep big-toe contact.',
+      breath: 'Don\'t hold your breath: slow inhale through the nose, long exhale through the mouth (~4 s each), belly stays braced.',
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Stay upright and engaged.'],
     },
     {
@@ -93,6 +101,7 @@ window.CATALOG = {
       primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Hamstrings', 'Glute med', 'Foot arch', 'Core'],
       sheet: 'Quads, glutes, hamstrings',
       review: 'Hamstrings are secondary, not a main focus. The diagram highlights only the quads and feet, with no glutes or hamstrings. The sheet omits "each side", but 8 reps is surely per leg.',
+      breath: 'Inhale as you lower · exhale as you push back up.',
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Control the movement.'],
     },
     {
@@ -102,6 +111,7 @@ window.CATALOG = {
       primary: ['Chest'], secondary: ['Front delts', 'Triceps', 'Serratus', 'Core'],
       sheet: 'Chest, shoulders, triceps',
       review: 'List and diagram are OK ("shoulders" = front delts). Unclear whether 5 kg is per cable.',
+      breath: 'Exhale as you press forward · inhale as the handles come back.',
       tips: ['Keep your core tight and chest up.', 'Press forward and squeeze the chest.', 'Control the movement.'],
     },
     {
@@ -111,6 +121,7 @@ window.CATALOG = {
       primary: ['Lats', 'Teres major'], secondary: ['Biceps', 'Mid traps', 'Lower traps', 'Rhomboids', 'Rear delts'],
       sheet: 'Lats, mid back, biceps',
       review: 'List is OK. Diagram is wrong: it highlights the front abdomen instead of the lats on the back, and biceps aren\'t highlighted. Pull the bar to the upper chest (not behind the neck).',
+      breath: 'Exhale as you pull the bar down to your chest · inhale as you let it rise.',
       tips: ['Pull elbows down and back.', 'Squeeze your lats at the bottom.', 'Control the movement.'],
     },
     {
@@ -120,6 +131,7 @@ window.CATALOG = {
       primary: ['Rectus abdominis', 'Transverse abdominis', 'Obliques'], secondary: ['Hip flexors'],
       sheet: 'Abs, core',
       review: 'Diagram is wrong: it highlights the front thighs instead of the abs. The 2nd photo shows one leg extending (a regular deadbug rep), not a pure hold. Ask whether 10 reps is total or per side.',
+      breath: 'Exhale fully as you press palms into thighs and flatten your back · keep breathing gently through the 3 s hold · inhale as you release.',
       tips: ['Keep your lower back pressed into the floor.', 'Press your palms against your thighs.', 'Stay stable and breathe.'],
     },
     // ---- added later ----
@@ -128,6 +140,7 @@ window.CATALOG = {
       name: 'Side plank hip lifts', detail: 'Kneeling side plank on forearm: bottom knee bent, top leg straight, top hand on hip',
       img: null, kind: 'reps', perSide: true, loadType: 'none', step: 1,
       primary: ['Obliques', 'Glute med'], secondary: ['Quadratus lumborum', 'Transverse abdominis', 'Serratus', 'Rotator cuff'],
+      breath: 'Exhale as you lift the hips · inhale as you lower.',
       tips: ['Elbow right under the shoulder, push the floor away.', 'Hips stacked; at the top, knee–hip–shoulder in one line.', 'Lift from the side waist, lower with control. Tap, don\'t flop.'],
     },
     {
@@ -135,6 +148,7 @@ window.CATALOG = {
       name: 'Shoulder press (machine)', detail: 'Technogym machine #65, seated',
       img: 'img/ex/machine-shoulder-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Chest'],
+      breath: 'Exhale as you press up · inhale as you lower.',
       tips: ['Set the seat so the handles start at about shoulder height.', 'Back flat against the pad, core braced; don\'t shrug.', 'Press up without slamming the elbows locked, lower slowly to shoulder level.'],
     },
   ],

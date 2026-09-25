@@ -291,7 +291,8 @@ function itemCard(s, it, i) {
       <small>${h(ex.detail || '')}</small><br>
       <span class="target">🎯 ${h(targetText(ex, t))}</span></div>
     </div>
-    ${ex.tips?.length ? `<ul class="tips">${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}
+    ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
+      ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
     ${S.notes[ex.id] ? `<div class="last">📝 ${h(S.notes[ex.id])}</div>` : ''}
     ${sug}${ssHint}
@@ -337,6 +338,8 @@ function vExercise(id) {
     <div class="card"><b>Primary</b><div>${chips(ex.primary || [])}</div>
       ${ex.secondary?.length ? `<b>Secondary</b><div class="sec">${chips(ex.secondary)}</div>` : ''}</div>
     ${ex.review ? `<div class="card warn"><b>⚠️ Trainer sheet check</b><p><small>Sheet says: ${h(ex.sheet)}</small></p><p>${h(ex.review)}</p></div>` : ''}
+    ${ex.breath ? `<div class="card"><b>🫁 Breathing</b><p>${h(ex.breath)}</p>
+      <p><small>Rule of thumb: breathe out on the effort, in on the way back. Never hold your breath through a rep. If you lose the rhythm, slow the rep down to match your breath.</small></p></div>` : ''}
     ${ex.tips?.length ? `<div class="card"><b>Coaching tips</b><ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul></div>` : ''}
     <div class="card"><label><b>My notes</b><textarea data-f="exnote" data-ex="${id}" rows="2" placeholder="Machine settings, seat height, what to watch…">${h(S.notes[id] || '')}</textarea></label></div>
     <h2>Progress</h2>

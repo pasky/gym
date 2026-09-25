@@ -119,5 +119,7 @@ label { display: block; }
 .bars .bar i { display: block; height: .7rem; background: var(--g2); border-radius: 99px; min-width: 2px; }
 .bars .bar b { text-align: right; }
 .bars details { margin-top: .6rem; }
-ul.tips { margin: .5rem 0 0; padding: .45rem .6rem .45rem 1.6rem; background: #f6f8f7; border-radius: 10px; font-size: .88rem; color: #33443b; }
-ul.tips li { margin: .1rem 0; }
+.tips { margin: .5rem 0 0; padding: .45rem .6rem; background: #f6f8f7; border-radius: 10px; font-size: .88rem; color: #33443b; }
+.tips ul { margin: 0; padding-left: 1rem; }
+.tips li { margin: .1rem 0; }
+.tips .breath { color: #1d4f7a; font-weight: 600; margin-bottom: .25rem; }
