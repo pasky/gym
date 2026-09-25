@@ -274,7 +274,7 @@ function applyMerged(merged) {
   S.active = active && sess(active) && !sess(active).end ? active : null;   // finished elsewhere -> not running here
   resnap();
   store.save(S);
-  if (canon(syncPart(S)) !== before) rerender();
+  if (canon(syncPart(S)) !== before && !onDataPage()) rerender();   // the Sync page only updates its status line
 }
 // pull and merge; with push, also upload if the merged log differs from GitHub's.
 // Uploads are retried on concurrent writes (GitHub rejects writes based on a stale sha).
@@ -318,6 +318,7 @@ async function syncNow(push = true) {
     if (SY.again) { const p = SY.againPush; SY.again = SY.againPush = false; scheduleSync(1000, p); }
   }
 }
+const onDataPage = () => (location.hash || '').startsWith('#/data');
 function syncBadge() {
   const el = $('#syncst');
   if (!el) return;
@@ -709,6 +710,8 @@ function render() {
   document.body.classList.toggle('ro', !!VIEW);
   if (VIEW) main.querySelectorAll('input, textarea, select, button').forEach(el => { if (!el.hasAttribute('data-ro')) el.disabled = true; });
   syncBadge();
+  const imp = $('#import');
+  if (imp) imp.onchange = () => importFile(imp.files[0]);
   if (route === 'targets' && arg) document.getElementById('t-' + arg)?.scrollIntoView();
   if (pendingScroll) { document.getElementById(pendingScroll)?.scrollIntoView({ block: 'start' }); pendingScroll = null; }
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#/' + (route || '')));
@@ -875,23 +878,27 @@ document.addEventListener('change', e => {
     const s = cur(), ex = exOf(el.value);
     s.items.push(mkItem(ex.id));
     save(); rerender(); toast(`${ex.name} added`);
-  } else if (el.id === 'import' && el.files[0]) {
-    el.files[0].text().then(t => {
-      const d = JSON.parse(t);
-      validateBackup(d);
-      if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
-      S = migrate(Object.assign(emptyState(), { v: 1 }, d));
-      if (S.active && typeof S.active !== 'string') S.active = null;
-      if (S.active && !sess(S.active)) S.active = null;
-      resnap(); save(); go('#/');
-      toast('Backup imported');
-    }).catch(err => alert('Import failed: ' + err.message));
   }
 });
+// Backup import. The listener sits on the <input> itself (set in render()): if the page re-renders
+// while the file picker is open, the file goes to the old, detached input, whose events no longer
+// bubble up to document.
+function importFile(file) {
+  if (!file) return;
+  file.text().then(t => {
+    const d = JSON.parse(t);
+    validateBackup(d);
+    if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
+    S = migrate(Object.assign(emptyState(), { v: 1 }, d));
+    if (S.active && !sess(S.active)) S.active = null;
+    resnap(); save(); go('#/');
+    toast('Backup imported');
+  }).catch(err => alert('Import failed: ' + err.message));
+}
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     tickRest();
-    if (!document.activeElement?.matches('input,textarea')) rerender();
+    if (!document.activeElement?.matches('input,textarea') && !onDataPage()) rerender();
     // pick up other devices' changes (a download: no commit); upload only if edits have idled long enough
     if (SY.cfg && (Date.now() - (SY.cfg.last || 0) > 60000 || idleLongEnough())) syncNow(!!idleLongEnough());
   }

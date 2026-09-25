@@ -95,6 +95,24 @@ try:
         print('offline reload renders:', pg.locator('#main').inner_text()[:40].replace(chr(10), ' '))
         assert pg.locator('#nav a').count() == 4
         pg.context.set_offline(False)
+        # import survives a re-render while the file picker is open (it used to silently do nothing)
+        import json as _j, tempfile
+        bk = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False)
+        _j.dump({'v': 2, 'sessions': [{'id': 'imp1', 'start': 1700000000000, 'end': 1700000600000, 'note': '', 'items': [
+            {'ex': 'lat-pulldown', 'target': {'sets': 3, 'reps': 10, 'load': 35, 'rest': 90}, 'sets': [{'w': 35, 'r': 10, 'done': True}], 'note': ''}]}],
+            'active': None, 'targets': {}, 'targetLog': [], 'notes': {'lat-pulldown': 'seat 4'}}, bk); bk.close()
+        pg.goto('http://localhost:8765/#/data'); pg.wait_for_selector('#import', state='attached')
+        with pg.expect_file_chooser() as fc: pg.click('text=Import backup')
+        pg.evaluate("document.dispatchEvent(new Event('visibilitychange')); rerender()")
+        fc.value.set_files(bk.name); pg.wait_for_timeout(500)
+        st = state(pg)
+        assert any(x['id'] == 'imp1' for x in st['sessions']) and st['notes']['lat-pulldown']['t'] == 'seat 4', 'import after re-render failed'
+        print('import after re-render: ok')
+        # Sync page form keeps typed values when the app comes back to the foreground
+        pg.goto('http://localhost:8765/#/data'); pg.click('text=Set it up yourself'); pg.fill('#c-repo', 'me/gym-data')
+        pg.evaluate("document.activeElement.blur(); document.dispatchEvent(new Event('visibilitychange'))")
+        assert pg.input_value('#c-repo') == 'me/gym-data', 'form cleared on resume'
+        print('form survives resume: ok')
         # invalid import must not clobber data
         before = pg.evaluate("localStorage['gym.v1']")
         pg.goto(URL + '#/data')
