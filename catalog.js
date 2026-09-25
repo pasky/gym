@@ -122,6 +122,14 @@ window.CATALOG = {
       review: 'Diagram is wrong: it highlights the front thighs instead of the abs. The 2nd photo shows one leg extending (a regular deadbug rep), not a pure hold. Ask whether 10 reps is total or per side.',
       tips: ['Keep your lower back pressed into the floor.', 'Press your palms against your thighs.', 'Stay stable and breathe.'],
     },
+    // ---- added later ----
+    {
+      id: 'side-plank-hip-lift', group: 'core', target: { sets: 3, reps: 10, load: null, rest: 60 },
+      name: 'Side plank hip lifts', detail: 'Kneeling side plank on forearm: bottom knee bent, top leg straight, top hand on hip',
+      img: null, kind: 'reps', perSide: true, loadType: 'none', step: 1,
+      primary: ['Obliques', 'Glute med'], secondary: ['Quadratus lumborum', 'Transverse abdominis', 'Serratus', 'Rotator cuff'],
+      tips: ['Elbow right under the shoulder, push the floor away.', 'Hips stacked; at the top, knee–hip–shoulder in one line.', 'Lift from the side waist, lower with control. Tap, don\'t flop.'],
+    },
   ],
   // The trainer's original sheets (shown on the Data tab). Visits can mix any exercises.
   plans: [
