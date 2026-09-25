@@ -291,6 +291,7 @@ function itemCard(s, it, i) {
       <small>${h(ex.detail || '')}</small><br>
       <span class="target">🎯 ${h(targetText(ex, t))}</span></div>
     </div>
+    ${ex.tips?.length ? `<ul class="tips">${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
     ${S.notes[ex.id] ? `<div class="last">📝 ${h(S.notes[ex.id])}</div>` : ''}
     ${sug}${ssHint}
@@ -472,7 +473,8 @@ const actions = {
       x.at = Date.now();
       const nx = s.items[i + 1];
       if (!s.end) {
-        if (it.ss && nx && nx.ss === it.ss) toast(`Superset → ${exOf(nx.ex).name}`);
+        // superset: go straight to the partner while it still owes a set for this round
+        if (it.ss && nx?.ss === it.ss && doneSets(nx).length < doneSets(it).length && nx.sets.some(y => !y.done)) toast(`Superset → ${exOf(nx.ex).name}`);
         else if (x === it.sets.at(-1) || it.sets.every(y => y.done)) { toast('Exercise done 💪'); startRest(it.target.rest); }
         else startRest(it.target.rest);
       }
@@ -501,7 +503,9 @@ const actions = {
   finish: () => {
     const s = cur();
     if (!s.items.some(i => doneSets(i).length)) {
-      if (confirm('Nothing logged in this visit. Discard it?')) { S.sessions = S.sessions.filter(x => x !== s); S.active = null; save(); go('#/'); }
+      if (confirm('Nothing logged in this visit. Discard it?')) {
+        S.sessions = S.sessions.filter(x => x !== s); S.active = null; rest = null; tickRest(); save(); go('#/');
+      }
       return;
     }
     const open = s.items.flatMap(i => i.sets).filter(x => !x.done).length;
@@ -513,7 +517,7 @@ const actions = {
     const s = cur();
     if (!confirm('Delete this session permanently?')) return;
     S.sessions = S.sessions.filter(x => x !== s);
-    if (S.active === s.id) S.active = null;
+    if (S.active === s.id) { S.active = null; rest = null; tickRest(); }
     save(); go('#/');
   },
   resettarget: b => { delete S.targets[b.dataset.ex]; save(); rerender(); },

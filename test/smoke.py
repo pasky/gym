@@ -59,6 +59,20 @@ try:
         print('targets:', state(pg)['targets'])
         assert state(pg)['targets'] == {'goblet-step-up': {'load': 8}}
 
+        # superset rest: partner added after its sets are done must not suppress rest on the other
+        pg.goto(URL); pg.click('[data-a=pick][data-ex=face-pull]'); pg.wait_for_selector('#item-0')
+        for j in range(3):
+            pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
+        pg.click('[data-a=addpartner]')
+        assert [i['ex'] for i in state(pg)['sessions'][-1]['items']] == ['seated-cable-row', 'face-pull']
+        pg.click('[data-a=tick][data-i="0"][data-j="0"]')
+        assert pg.is_visible('#rest'), 'row should rest when face pull is already done'
+        # untick everything, finish => discard, timer must stop
+        pg.click('[data-a=tick][data-i="0"][data-j="0"]')
+        for j in range(3):
+            pg.click(f'[data-a=tick][data-i="1"][data-j="{j}"]')
+        pg.click('[data-a=finish]')
+        assert len(state(pg)['sessions']) == 2 and not pg.is_visible('#rest')
         # finishing an empty visit discards it
         pg.goto(URL); pg.click('[data-a=pick][data-ex=lat-pulldown]'); pg.click('[data-a=finish]')
         assert len(state(pg)['sessions']) == 2 and state(pg)['active'] is None
