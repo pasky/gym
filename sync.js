@@ -43,12 +43,10 @@ function mergeStates(a, b) {
     for (const [k, v] of Object.entries(y)) if (!r[k] || newer(v, r[k], v.u || 0, r[k].u || 0)) r[k] = v;
     return r;
   };
-  const seen = new Set();
-  const targetLog = [...(a.targetLog || []), ...(b.targetLog || [])].filter(l => {
-    const k = `${l.t}|${l.ex}|${l.k}|${l.to}`;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  }).sort((x, y) => x.t - y.t);
+  // union of identical entries, in a total order (so both devices produce the same log)
+  const logMap = new Map();
+  for (const l of [...(a.targetLog || []), ...(b.targetLog || [])]) logMap.set(canon(l), l);
+  const targetLog = [...logMap.entries()].sort(([ka, x], [kb, y]) => x.t - y.t || (ka < kb ? -1 : ka > kb ? 1 : 0)).map(([, l]) => l);
   return { ...a, sessions, deleted, targets: lww(a.targets, b.targets), notes: lww(a.notes, b.notes), targetLog };
 }
 
@@ -137,7 +135,7 @@ async function ghWrite(cfg, data, sha, message) {
 // Together with HTML escaping at render time this keeps a malicious log from injecting markup.
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const numOr = (v, d = null) => (typeof v === 'number' && isFinite(v) ? v : d);
-const strOr = (v, max = 4000) => (typeof v === 'string' ? v.slice(0, max) : '');
+const strOr = v => (typeof v === 'string' ? v : '');   // no truncation: never drop user data
 const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
 function sanitizeTarget(t) {
   const o = {};
@@ -150,11 +148,11 @@ function sanitizeState(x) {
   out.sessions = (Array.isArray(x.sessions) ? x.sessions : []).filter(s => isObj(s) && ID_RE.test(s.id) && numOr(s.start) !== null).map(s => {
     const o = { id: s.id, start: s.start, end: numOr(s.end), note: strOr(s.note), items: [] };
     if (numOr(s.u) !== null) o.u = s.u;
-    if (typeof s.name === 'string') o.name = strOr(s.name, 100);
+    if (typeof s.name === 'string') o.name = s.name;
     o.items = (Array.isArray(s.items) ? s.items : []).filter(it => isObj(it) && ID_RE.test(it.ex)).map(it => ({
       ex: it.ex, ss: typeof it.ss === 'string' && ID_RE.test(it.ss) ? it.ss : '', note: strOr(it.note),
       target: { sets: 3, reps: 10, load: null, rest: 90, ...sanitizeTarget(it.target) },
-      sets: (Array.isArray(it.sets) ? it.sets : []).filter(isObj).slice(0, 50).map(z => {
+      sets: (Array.isArray(it.sets) ? it.sets : []).filter(isObj).map(z => {
         const q = { w: numOr(z.w), r: numOr(z.r), done: z.done === true };
         if (numOr(z.at) !== null) q.at = z.at;
         return q;

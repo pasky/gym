@@ -52,7 +52,7 @@ function save() {
   if (VIEW) return;
   for (const x of S.sessions) {
     const j = sessJSON(x);
-    if (snap.get(x.id) !== j) { x.u = nextU(x.u); snap.set(x.id, j); }
+    if (snap.get(x.id) !== j) { x.u = nextU(sessU(x)); snap.set(x.id, j); }
   }
   store.save(S);
   scheduleSync();
@@ -233,7 +233,7 @@ const SY = { cfg: lsGet(SYNC_KEY), busy: false, err: null, again: false, timer: 
 // bumped on anything that changes what S means or where it syncs (view enter/exit, connect,
 // disconnect, copy): an in-flight sync then drops its result instead of mixing logs
 const bumpGen = () => { SY.gen++; };
-const editing = () => !!document.activeElement?.closest?.('#main') && document.activeElement.matches('input,textarea');
+const editing = () => !!document.activeElement?.closest?.('#main') && document.activeElement.matches('input:not([readonly]),textarea');
 const syncCfgSave = () => lsSet(SYNC_KEY, SY.cfg);
 const normalize = data => { const x = migrate(Object.assign(emptyState(), { v: 1 }, JSON.parse(JSON.stringify(data)))); x.active = null; return x; };
 const appUrl = () => location.origin + location.pathname;
@@ -276,12 +276,15 @@ async function syncNow() {
       if (attempt > 4) throw new SyncError('The log keeps changing elsewhere; will retry', 0);
       const remote = await ghRead(cfg);
       if (stale()) return;
-      // don't swap state under a field being edited (DOM indices would point into the new state)
-      if (editing()) { scheduleSync(3000); return; }
       const rs = remote && normalize(remote.data);
-      applyMerged(rs ? mergeStates(S, rs) : S);
-      if (rs && canon(syncPart(S)) === canon(syncPart(rs))) { cfg.sha = remote.sha; break; }
-      const w = await ghWrite(cfg, syncPart(S), remote?.sha, `gym: sync from ${device()}`);
+      const merged = rs ? mergeStates(S, rs) : S;
+      // Don't swap state under a field being edited (DOM indices would point into the new state):
+      // still upload the merge, but apply it locally once the field loses focus.
+      const defer = editing();
+      if (defer) SY.pendingApply = true; else { SY.pendingApply = false; applyMerged(merged); }
+      const out = defer ? merged : S;
+      if (rs && canon(syncPart(out)) === canon(syncPart(rs))) { cfg.sha = remote.sha; break; }
+      const w = await ghWrite(cfg, syncPart(out), remote?.sha, `gym: sync from ${device()}`);
       if (stale()) return;
       if (w.conflict) continue;
       cfg.sha = w.sha;
@@ -842,6 +845,7 @@ document.addEventListener('visibilitychange', () => {
   } else if (SY.timer) syncNow();   // leaving: push pending changes now
 });
 window.addEventListener('online', () => syncNow());
+document.addEventListener('focusout', () => { if (SY.pendingApply) scheduleSync(300); });
 window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });  // render() applies pendingScroll
 window.addEventListener('storage', e => { if (e.key === KEY && !VIEW) { S = store.load(); resnap(); rerender(); } });
 render();

@@ -262,6 +262,15 @@ try:
             return canon(syncPart(mergeStates(a, b))) === canon(syncPart(mergeStates(b, a)));
         }""")
         check(same, 'mergeStates(a,b) == mergeStates(b,a)')
+        same2 = A.evaluate("""() => {
+            const e = (to, from) => ({ t: 5, ex: 'x', k: 'load', from, to });
+            const a = { v: 3, sessions: [], deleted: {}, targets: {}, notes: {}, targetLog: [e(2, 1), e(3, 1)] };
+            const b = { v: 3, sessions: [], deleted: {}, targets: {}, notes: {}, targetLog: [e(3, 1), e(2, 1), e(2, 0)] };
+            return canon(syncPart(mergeStates(a, b))) === canon(syncPart(mergeStates(b, a)));
+        }""")
+        check(same2, 'target log merge order-independent')
+        long_note = A.evaluate("() => sanitizeState({ sessions: [{ id: 'l', start: 1, note: 'x'.repeat(10000), items: [{ ex: 'a', target: {}, sets: Array.from({ length: 80 }, () => ({ w: 1, r: 1, done: true })) }] }] }).sessions[0]")
+        check(len(long_note['note']) == 10000 and len(long_note['items'][0]['sets']) == 80, 'sanitizer keeps long notes and many sets')
 
         print('== visit finished on another device')
         A.goto(BASE + '#/'); A.click('[data-a=pick][data-ex=face-pull]'); A.wait_for_selector('#item-0')
@@ -278,7 +287,10 @@ try:
         gh.put_raw('pasky/gym-data', 'gym.json', d)
         A.focus('[data-f=set][data-i="0"][data-j="0"][data-k=w]')
         sync(A)
-        check('focusx' not in [z['id'] for z in state(A)['sessions']], 'sync postponed while editing')
+        check('focusx' not in [z['id'] for z in state(A)['sessions']], 'local state not swapped while editing')
+        A.fill('[data-f=set][data-i="0"][data-j="0"][data-k=w]', '17'); sync(A)
+        up = [z for z in gh.file('pasky/gym-data')['sessions'] if z['id'] == state(A)['active']]
+        check(up and up[0]['items'][0]['sets'][0]['w'] == 17 and 'focusx' in [z['id'] for z in gh.file('pasky/gym-data')['sessions']], 'edits still uploaded while editing')
         A.locator('[data-f=set][data-i="0"][data-j="0"][data-k=w]').blur(); A.wait_for_timeout(3500); sync(A)
         check('focusx' in [z['id'] for z in state(A)['sessions']], 'applied after editing stops')
 
