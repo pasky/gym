@@ -636,6 +636,7 @@ function vSettings() {
         <small>Works for anyone if the repo is public. For a private repo, the viewer needs their own GitHub access to it.</small></p>`
       : `<p>Keep your log in a GitHub repo: syncs between your devices, keeps full history, and lets you share a read-only link (e.g. with your trainer).
         <b>Got a link from your trainer?</b> Just open it on this device.</p>
+        <p><small>📱 Tip: do the setup below on a computer (easy to paste the token). Then this tab there shows <i>Add another device</i> with a QR code for your phone.</small></p>
         <details><summary>Set it up yourself (≈2 min, needs a GitHub account)</summary><ol>
           <li>Create a repo, e.g. <i>gym-data</i> at <a href="https://github.com/new" target="_blank" rel="noopener">github.com/new</a>: <b>public</b> to share without logins, <b>private</b> otherwise.</li>
           ${TOKEN_HELP}
