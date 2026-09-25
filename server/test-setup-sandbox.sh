@@ -127,6 +127,7 @@ cut -d: -f1 "$T/gym-sync.htpasswd" | sort | tr '\n' ' ' | grep -qx 'anna ben ' &
 flock "$T/setup.lock" sleep 3 & LP=$!; sleep 0.5
 lrc=0; timeout 1 $S list >/dev/null 2>&1 || lrc=$?; [ $lrc = 124 ] && ok "concurrent command waits for the lock" || bad "lock not honored"
 wait $LP
+[ "$(stat -c %a "$T/setup.lock")" = 600 ] && ok "lock file private (600)" || bad "lock file mode $(stat -c %a "$T/setup.lock")"
 $S remove ben >/dev/null
 [ "$(put ben "$P2" ben '{}')" = 401 ] && ok "removed profile can't write" || bad "removed profile still writes"
 [ -f "$T/data/ben.json" ] && ok "remove keeps data" || bad "remove deleted data"

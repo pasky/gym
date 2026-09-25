@@ -30,7 +30,7 @@ URLPATH=/gym-sync
 DIR=/var/lib/gym-sync
 CONF=/etc/apache2/gym-sync.conf
 HTPASSWD=/etc/apache2/gym-sync.htpasswd
-LOCK=/run/lock/gym-sync-setup.lock
+LOCK=/run/gym-sync-setup.lock   # /run is root-only; /run/lock is world-writable
 HERE=$(cd "$(dirname "$0")" && pwd)
 STAMP=$(date +%Y%m%d%H%M%S)
 # an active (uncommented) Include of exactly $CONF
@@ -45,7 +45,12 @@ NAME=${2:-}
 
 # one command at a time: htpasswd read-modify-write and config edits must not interleave
 command -v flock >/dev/null || die "flock missing (util-linux)"
+# private lock (0600): flock works on read-only fds too, so a readable lock file would let any
+# local user hold it and block e.g. password revocation
+old_umask=$(umask); umask 077
 exec 9>"$LOCK"
+umask "$old_umask"
+chmod 0600 "$LOCK"
 flock -w 60 9 || die "another setup-webdav.sh is running (lock $LOCK)"
 
 valid_name() {
