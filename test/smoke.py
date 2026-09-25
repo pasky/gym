@@ -1,10 +1,12 @@
-"""Headless smoke test: python3 test/smoke.py  (serves the repo on :8765, drives two visits, screenshots to /tmp/gym-*.png)"""
+"""Headless smoke test: python3 test/smoke.py  (serves the repo on :8765, drives a few visits, screenshots to /tmp/gym-*.png)"""
 import subprocess, sys, time, os
 from playwright.sync_api import sync_playwright
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 srv = subprocess.Popen([sys.executable, '-m', 'http.server', '8765'], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(0.8)
+URL = 'http://localhost:8765/'
 errors = []
+state = lambda pg: pg.evaluate("JSON.parse(localStorage['gym.v1'])")
 try:
     with sync_playwright() as p:
         b = p.chromium.launch()
@@ -12,57 +14,68 @@ try:
         pg.on('pageerror', lambda e: errors.append(str(e)))
         pg.on('console', lambda m: m.type == 'error' and errors.append(m.text))
         pg.on('dialog', lambda d: d.accept())
-        pg.goto('http://localhost:8765/')
+
+        # v1 -> v2 migration of plan-keyed targets
+        pg.goto(URL)
+        pg.evaluate("""localStorage['gym.v1'] = JSON.stringify({v: 1, sessions: [], active: null, draft: [],
+            targets: {'B:lat-pulldown': {load: 40}}, targetLog: [{t: 1, key: 'B:lat-pulldown', k: 'load', from: 35, to: 40}], notes: {}})""")
+        pg.reload()
+        pg.click('[data-a=pick][data-ex=goblet-box-squat]')  # triggers a save
+        st = state(pg)
+        assert st['targets'] == {'lat-pulldown': {'load': 40}}, st['targets']
+        assert st['targetLog'][0]['ex'] == 'lat-pulldown' and 'draft' not in st, st
+        pg.evaluate("localStorage.clear()"); pg.goto(URL); pg.reload()
         pg.screenshot(path='/tmp/gym-home.png', full_page=True)
-        pg.click('[data-a=preset][data-p=A]')
-        pg.click('[data-a=start]')
-        # tick every set of first exercise, change weight on first set
+
+        # visit 1: pick exercises one by one, straight from home
+        pg.click('[data-a=pick][data-ex=goblet-step-up]')
+        pg.wait_for_selector('#item-0')
         pg.fill('[data-f=set][data-i="0"][data-j="0"][data-k=w]', '8')
         for j in range(3):
             pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
-        for i in range(1, 6):
+        pg.click('[data-a=pick][data-ex=seated-cable-row]')
+        pg.click('[data-a=addpartner]')  # superset partner suggestion
+        pg.click('[data-a=pick][data-ex=deadbug-hold]')
+        items = [i['ex'] for i in state(pg)['sessions'][0]['items']]
+        print('visit 1:', items)
+        assert items == ['goblet-step-up', 'seated-cable-row', 'face-pull', 'deadbug-hold'], items
+        for i in range(1, 4):
             pg.click(f'[data-a=tick][data-i="{i}"][data-j="0"]')
         pg.screenshot(path='/tmp/gym-session.png', full_page=True)
         pg.click('[data-a=finish]')
         pg.screenshot(path='/tmp/gym-finished.png', full_page=True)
-        # fake it being an older session, then do another visit of A
+
+        # age it, then visit 2 should suggest progression for the step-up
         pg.evaluate("""() => { const s = JSON.parse(localStorage['gym.v1']); s.sessions[0].start -= 3*864e5; s.sessions[0].end -= 3*864e5; localStorage['gym.v1'] = JSON.stringify(s); }""")
-        pg.goto('http://localhost:8765/#/'); pg.reload()
-        pg.click('[data-a=preset][data-p=A]'); pg.click('[data-a=start]')
+        pg.goto(URL); pg.reload()
+        pg.click('[data-a=pick][data-ex=goblet-step-up]')
+        pg.wait_for_selector('.sug')
         pg.screenshot(path='/tmp/gym-session2.png', full_page=True)
-        n = pg.locator('.sug').count()
-        print('suggestions shown:', n)
         pg.click('.sug [data-k=load]')
-        pg.wait_for_timeout(300)
+        pg.wait_for_timeout(200)
         for j in range(3):
             pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
         pg.click('[data-a=finish]')
-        pg.goto('http://localhost:8765/#/ex/goblet-step-up')
-        pg.screenshot(path='/tmp/gym-ex.png', full_page=True)
-        pg.goto('http://localhost:8765/#/progress'); pg.screenshot(path='/tmp/gym-progress.png', full_page=True)
-        pg.goto('http://localhost:8765/#/targets'); pg.screenshot(path='/tmp/gym-targets.png', full_page=True)
-        # mix & match: balanced pick + manual toggle, superset partners kept adjacent
-        pg.goto('http://localhost:8765/#/')
-        pg.click('[data-a=balanced]')
-        pg.click('[data-f=pick][value=face-pull]'); pg.click('[data-f=pick][value=seated-cable-row]')
-        pg.screenshot(path='/tmp/gym-builder.png', full_page=True)
-        draft = pg.evaluate("JSON.parse(localStorage['gym.v1']).draft"); print('draft:', draft)
-        pg.click('[data-a=start]')
-        items = pg.evaluate("(() => { const s = JSON.parse(localStorage['gym.v1']); return s.sessions.find(x => x.id === s.active).items.map(i => i.ex); })()")
-        print('session:', items)
-        i = items.index('face-pull'); assert abs(i - items.index('seated-cable-row')) == 1
-        pg.click('[data-a=finish]')
-        print('targets:', pg.evaluate("localStorage['gym.v1'] && JSON.parse(localStorage['gym.v1']).targets"))
+        print('targets:', state(pg)['targets'])
+        assert state(pg)['targets'] == {'goblet-step-up': {'load': 8}}
+
+        # finishing an empty visit discards it
+        pg.goto(URL); pg.click('[data-a=pick][data-ex=lat-pulldown]'); pg.click('[data-a=finish]')
+        assert len(state(pg)['sessions']) == 2 and state(pg)['active'] is None
+
+        pg.goto(URL + '#/ex/goblet-step-up'); pg.screenshot(path='/tmp/gym-ex.png', full_page=True)
+        pg.goto(URL + '#/progress'); pg.screenshot(path='/tmp/gym-progress.png', full_page=True)
+        pg.goto(URL + '#/targets/face-pull'); pg.screenshot(path='/tmp/gym-targets.png')
+
         # narrow phone: reps input must fit two digits
         pg.set_viewport_size({'width': 320, 'height': 700})
-        pg.goto('http://localhost:8765/#/'); pg.click('[data-a=preset][data-p=A]'); pg.click('[data-a=start]')
-        pg.wait_for_selector('.card.ex'); print(pg.url, pg.locator('.card.ex').count())
-        w = pg.eval_on_selector('[data-f=set][data-i="5"][data-j="0"][data-k=r]', 'e => e.clientWidth')
+        pg.goto(URL); pg.click('[data-a=pick][data-ex=cable-trunk-twist]'); pg.wait_for_selector('#item-0')
+        w = pg.eval_on_selector('[data-f=set][data-i="0"][data-j="0"][data-k=r]', 'e => e.clientWidth')
         print('reps input width @320px:', w); assert w >= 30, w
         pg.screenshot(path='/tmp/gym-narrow.png')
         # invalid import must not clobber data
         before = pg.evaluate("localStorage['gym.v1']")
-        pg.goto('http://localhost:8765/#/data')
+        pg.goto(URL + '#/data')
         pg.set_input_files('#import', files=[{'name': 'b.json', 'mimeType': 'application/json', 'buffer': b'{"sessions":[null]}'}])
         pg.wait_for_timeout(300)
         assert pg.evaluate("localStorage['gym.v1']") == before, 'import clobbered data'

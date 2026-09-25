@@ -1,4 +1,4 @@
-// Source of truth for the exercise library and visit presets (edit here, not in the app).
+// Source of truth for the exercise library (edit here, not in the app).
 // The app only stores sessions, per-exercise target overrides and notes in the browser (keyed by
 // exercise id), so changes here propagate. Keep ids stable.
 //
@@ -10,6 +10,7 @@
 //   perSide: reps/holds are per side
 //   loadType: 'kg' (external load), 'bw' (bodyweight, optional added kg), 'none'
 //   step: default progression increment (kg, or seconds for holds)
+//   primary/secondary: atomic muscle names (reuse existing spellings; they're aggregated in the balance view)
 //   sheet: muscles as listed on the trainer's sheet; review: notes from checking the sheet
 window.CATALOG = {
   groups: [
@@ -52,7 +53,7 @@ window.CATALOG = {
       id: 'face-pull', group: 'back', target: { sets: 3, reps: 12, load: 10, rest: 90 }, ss: 'row-facepull',
       name: 'Face pull', detail: 'Cable, rope attachment',
       img: 'img/ex/face-pull.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
-      primary: ['Rear delts', 'Rhomboids / mid traps', 'Rotator cuff (external rotators)'], secondary: ['Biceps'],
+      primary: ['Rear delts', 'Rhomboids', 'Mid traps', 'Rotator cuff'], secondary: ['Biceps'],
       sheet: 'Back, rear delts (shared with seated row)',
       review: 'Front-view diagram highlights chest and front delts. That\'s wrong, since face pulls work the opposite side. Scapular retractors are under-highlighted. The sheet gives no rest for the superset (~90 s after the face pull is assumed).',
       tips: ['Pull towards your face.', 'Keep elbows high (comfortably).', 'Squeeze your shoulder blades.'],
@@ -61,7 +62,7 @@ window.CATALOG = {
       id: 'curl-to-press', group: 'shoulders', target: { sets: 3, reps: 8, load: 6, rest: 90 },
       name: 'Biceps curl into shoulder press', detail: 'Dumbbells, weight is per hand',
       img: 'img/ex/curl-to-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 1,
-      primary: ['Biceps', 'Front / side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Core'],
+      primary: ['Biceps', 'Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Core'],
       sheet: 'Biceps, shoulders',
       review: 'Triceps are missing from the list, even though they lock out the press. Shoulders are only faintly highlighted. "2x 6 kg each hand" means one 6 kg dumbbell in each hand.',
       tips: ['Curl the weights up.', 'Press overhead with control.', 'Keep your core tight.'],
@@ -80,7 +81,7 @@ window.CATALOG = {
       id: 'isometric-lunge', group: 'legs', target: { sets: 3, reps: 20, load: null, rest: 60 },
       name: 'Isometric lunge', detail: 'Inside ankle high, pressure on the outside of the foot',
       img: 'img/ex/isometric-lunge.jpg', kind: 'hold', perSide: true, loadType: 'none', step: 5,
-      primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Foot arch / tibialis posterior', 'Calves', 'Core'],
+      primary: ['Quads', 'Glutes'], secondary: ['Adductors', 'Foot arch', 'Calves', 'Core'],
       sheet: 'Quads, glutes, adductors',
       review: 'Adductors are secondary at best. The "inside ankle high / outside of the foot" cue targets the foot arch and ankle (tibialis posterior), which isn\'t shown. Glutes aren\'t highlighted. In the photo the rear knee seems to rest on the floor; hover it to keep the hold loaded. Presumably 20 s per side. Don\'t roll fully onto the outer edge; keep big-toe contact.',
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Stay upright and engaged.'],
@@ -107,7 +108,7 @@ window.CATALOG = {
       id: 'lat-pulldown', group: 'back', target: { sets: 3, reps: 10, load: 35, rest: 90 },
       name: 'Lat pulldown', detail: 'Grip a little wider than shoulder width',
       img: 'img/ex/lat-pulldown.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
-      primary: ['Lats', 'Teres major'], secondary: ['Biceps', 'Mid / lower traps', 'Rhomboids', 'Rear delts'],
+      primary: ['Lats', 'Teres major'], secondary: ['Biceps', 'Mid traps', 'Lower traps', 'Rhomboids', 'Rear delts'],
       sheet: 'Lats, mid back, biceps',
       review: 'List is OK. Diagram is wrong: it highlights the front abdomen instead of the lats on the back, and biceps aren\'t highlighted. Pull the bar to the upper chest (not behind the neck).',
       tips: ['Pull elbows down and back.', 'Squeeze your lats at the bottom.', 'Control the movement.'],
@@ -122,7 +123,7 @@ window.CATALOG = {
       tips: ['Keep your lower back pressed into the floor.', 'Press your palms against your thighs.', 'Stay stable and breathe.'],
     },
   ],
-  // Presets for quick-filling a visit (the trainer's original sheets). Visits can mix any exercises.
+  // The trainer's original sheets (shown on the Data tab). Visits can mix any exercises.
   plans: [
     { id: 'A', name: 'Training A', sheet: 'img/sheets/training-a.jpg',
       ex: ['goblet-step-up', 'goblet-box-squat', 'seated-cable-row', 'face-pull', 'curl-to-press', 'cable-trunk-twist'] },

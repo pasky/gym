@@ -25,7 +25,7 @@ const store = {
     catch (e) { alert('Could not save to browser storage!\n' + e); }
   },
 };
-function emptyState() { return { v: 2, sessions: [], active: null, targets: {}, targetLog: [], notes: {}, draft: [] }; }
+function emptyState() { return { v: 2, sessions: [], active: null, targets: {}, targetLog: [], notes: {} }; }
 function migrate(s) {
   if ((s.v || 1) < 2) { // v1 keyed targets by `${planId}:${exId}`; v2 keys by exercise id
     const strip = k => k.includes(':') ? k.split(':')[1] : k;
@@ -33,7 +33,7 @@ function migrate(s) {
     (s.targetLog || []).forEach(l => { l.ex = strip(l.key || ''); delete l.key; });
     s.v = 2;
   }
-  s.draft ||= [];
+  delete s.draft;
   return s;
 }
 let S = store.load();
@@ -42,7 +42,6 @@ const save = () => store.save(S);
 // ---------- catalog access ----------
 const EX = Object.fromEntries(CATALOG.exercises.map(e => [e.id, e]));
 const exOf = id => EX[id] || { id, name: id + ' (removed)', primary: [], secondary: [], tips: [], kind: 'reps', loadType: 'kg', step: 2.5 };
-const plan = id => CATALOG.plans.find(p => p.id === id);
 const groupName = id => CATALOG.groups.find(g => g.id === id)?.name || 'Other';
 const targetOf = exId => ({ sets: 3, reps: 10, load: null, rest: 90, ...(EX[exId]?.target || {}), ...(S.targets[exId] || {}) });
 function setTarget(exId, k, v) {
@@ -111,24 +110,25 @@ function mkItem(exId) {
     sets: Array.from({ length: t.sets }, () => ({ w: null, r: null, done: false })), note: '',
   };
 }
-function startSession(exIds) {
-  if (S.active && sess(S.active)) { go('#/s/' + S.active); return; }
-  exIds = exIds.filter(id => EX[id]);
-  // keep superset partners adjacent
-  const order = [];
-  for (const id of exIds) {
-    if (order.includes(id)) continue;
-    const tag = EX[id].ss; // whole superset group goes here, in catalog order
-    if (tag) CATALOG.exercises.filter(e => e.ss === tag && exIds.includes(e.id)).forEach(e => order.push(e.id));
-    else order.push(id);
-  }
-  const p = CATALOG.plans.find(p => p.ex.length === order.length && p.ex.every(e => order.includes(e)));
-  const groups = [...new Set(order.map(id => EX[id].group))].map(g => groupName(g).split(' ')[0]);
-  const s = {
-    id: uid(), planId: p?.id || null, name: p ? p.name : (groups.join(' · ') || 'Visit'),
-    start: Date.now(), end: null, note: '', items: order.map(mkItem),
-  };
-  S.sessions.push(s); S.active = s.id; S.draft = []; save(); go('#/s/' + s.id);
+function newSession() {
+  const s = { id: uid(), start: Date.now(), end: null, note: '', items: [] };
+  S.sessions.push(s); S.active = s.id;
+  return s;
+}
+// add an exercise to the running visit (starting one if needed) and jump to it
+function pickExercise(exId) {
+  let s = S.active && sess(S.active);
+  if (!s) s = newSession();
+  let i = s.items.findIndex(it => it.ex === exId);
+  if (i < 0) { s.items.push(mkItem(exId)); i = s.items.length - 1; }
+  save();
+  pendingScroll = 'item-' + i;
+  go('#/s/' + s.id);
+}
+// visit title from the muscle groups it touched
+function sessName(s) {
+  const gs = [...new Set(s.items.map(i => exOf(i.ex).group).filter(Boolean))];
+  return gs.length ? gs.map(g => groupName(g).split(' ')[0]).join(' · ') : (s.name || 'Visit');
 }
 // when an exercise / muscle group was last trained, and how many sets recently
 function lastDone(exId) {
@@ -151,16 +151,6 @@ const ago = t => {
   const d = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(t).setHours(0, 0, 0, 0)) / 864e5);
   return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} d ago`;
 };
-// balanced pick: least recently done exercise(s) per group; legs get two
-function balancedPick() {
-  const pick = [];
-  for (const g of byGroup()) {
-    const n = g.id === 'legs' ? 2 : 1;
-    [...g.ex].sort((a, b) => lastDone(a.id) - lastDone(b.id)).slice(0, n).forEach(e => pick.push(e.id));
-  }
-  return pick;
-}
-
 // ---------- rest timer ----------
 let rest = null, restIv = null, audio = null;
 function beep() {
@@ -223,55 +213,47 @@ function vHome() {
   let o = '';
   if (a) {
     const all = a.items.flatMap(i => i.sets), d = all.filter(x => x.done).length;
-    o += `<a class="card active" href="#/s/${a.id}"><div class="row"><div><b>${h(a.name)}</b> in progress<br>
+    o += `<a class="card active" href="#/s/${a.id}"><div class="row"><div><b>${h(sessName(a))}</b> in progress<br>
       <small>started ${fmtT(a.start)} · ${d}/${all.length} sets</small></div><span class="btn">Resume ›</span></div></a>`;
-  } else o += vBuilder();
+  } else o += `<h2>Pick an exercise to start a visit</h2>` + vPicker(null);
   o += `<h2>Past visits</h2>`;
   o += past.length ? `<div class="list">${past.slice(0, 30).map(s => {
     const n = s.items.reduce((a, i) => a + doneSets(i).length, 0);
-    return `<a href="#/s/${s.id}"><span>${fmtD(s.start)}</span><b>${h(s.name)}</b><small>${n} sets · ${dur(s.end - s.start)}</small></a>`;
-  }).join('')}</div>` : '<p class="muted">Nothing yet. Pick some exercises above and start your first visit.</p>';
+    return `<a href="#/s/${s.id}"><span>${fmtD(s.start)}</span><b>${h(sessName(s))}</b><small>${n} sets · ${dur(s.end - s.start)}</small></a>`;
+  }).join('')}</div>` : '<p class="muted">Nothing yet.</p>';
   return o;
 }
 
-function vBuilder() {
-  const st = groupStats(), draft = S.draft;
-  let o = `<h2>Plan today's visit</h2>
-    <div class="presets"><small>Quick fill:</small>
-      <button class="btn sm" data-a="balanced" title="least recently done exercises from every muscle group">⚖️ Balanced</button>
-      ${CATALOG.plans.map(p => `<button class="btn sm ghost" data-a="preset" data-p="${p.id}">${h(p.name)}</button>`).join('')}
-      ${draft.length ? '<button class="btn sm ghost danger" data-a="clear">Clear</button>' : ''}</div>`;
-  for (const g of byGroup()) {
+// exercise library grouped by muscle group, with how much/recently each group was trained
+function vPicker(s) {
+  const st = groupStats();
+  return byGroup().map(g => {
     const gs = st[g.id] || { w: 0, m: 0, last: 0 };
-    const picked = g.ex.filter(e => draft.includes(e.id)).length;
     const stale = !gs.last || Date.now() - gs.last > 7 * 864e5;
-    o += `<div class="card grp ${stale ? 'stale' : ''}">
-      <div class="row"><b>${h(g.name)}</b>${picked ? `<span class="chip hi">${picked} picked</span>` : ''}</div>
-      <small class="gstat">${gs.w} sets this week · ${Math.round(gs.m / 4 * 10) / 10}/wk avg (4 wk) · last ${ago(gs.last)}${stale ? ' · <b>due</b>' : ''}</small>
+    return `<div class="card grp ${stale ? 'stale' : ''}">
+      <b>${h(g.name)}</b>
+      <small class="gstat">${gs.w} sets this week · ${Math.round(gs.m / 4 * 10) / 10}/wk avg · last ${ago(gs.last)}${stale ? ' · <b>due</b>' : ''}</small>
       ${g.ex.map(e => {
-        const on = draft.includes(e.id);
-        return `<label class="pick ${on ? 'on' : ''}"><input type="checkbox" data-f="pick" value="${e.id}" ${on ? 'checked' : ''}>
+        const on = s?.items.some(i => i.ex === e.id);
+        return `<button class="pick ${on ? 'on' : ''}" data-a="pick" data-ex="${e.id}">
           ${e.img ? `<img src="${h(e.img)}" alt="" loading="lazy">` : '<span></span>'}
-          <span><b>${h(e.name)}</b>${e.ss ? ' <span class="chip ss">superset</span>' : ''}<br>
-          <small>${h(targetText(e, targetOf(e.id)))} · ${ago(lastDone(e.id))}</small></span>
-          ${on ? `<span class="ord">${draft.indexOf(e.id) + 1}</span>` : ''}</label>`;
+          <span><b>${h(e.name)}</b><br><small>${h(targetText(e, targetOf(e.id)))} · ${ago(lastDone(e.id))}</small></span>
+          <span class="go">${on ? '✓' : '+'}</span></button>`;
       }).join('')}
     </div>`;
-  }
-  o += `<p><a href="#/targets">🎯 Tweak targets ›</a></p>
-    <div class="startbar"><button class="btn big" data-a="start" ${draft.length ? '' : 'disabled'}>
-      ${draft.length ? `Start visit · ${draft.length} exercise${draft.length > 1 ? 's' : ''}` : 'Pick exercises to start'}</button></div>`;
-  return o;
+  }).join('');
 }
 
 function vSession(id) {
   const s = sess(id);
   if (!s) return '<p>Session not found.</p>';
   const live = !s.end;
-  let o = `<div class="shead"><h1>${h(s.name)}</h1><small>${fmtD(s.start)} · ${fmtT(s.start)}${s.end ? '–' + fmtT(s.end) + ' · ' + dur(s.end - s.start) : ' · <span id="elapsed"></span>'}</small></div>`;
+  let o = `<div class="shead"><h1>${h(sessName(s))}</h1><small>${fmtD(s.start)} · ${fmtT(s.start)}${s.end ? '–' + fmtT(s.end) + ' · ' + dur(s.end - s.start) : ' · <span id="elapsed"></span>'}</small></div>`;
   s.items.forEach((it, i) => { o += itemCard(s, it, i); });
-  o += `<div class="card"><label>Add exercise ${exSelect('addex')}</label></div>
-    <div class="card"><label>Session notes<textarea data-f="snote" rows="2" placeholder="How did it feel? Energy, sleep, pain…">${h(s.note)}</textarea></label></div>`;
+  if (!s.items.length) o += '<p class="muted">Pick your first exercise below.</p>';
+  if (live) o += `<h2>${s.items.length ? 'Next exercise' : 'Exercises'}</h2>` + vPicker(s);
+  else o += `<div class="card"><label>Add a forgotten exercise ${exSelect('addex')}</label></div>`;
+  o += `<div class="card"><label>Session notes<textarea data-f="snote" rows="2" placeholder="How did it feel? Energy, sleep, pain…">${h(s.note)}</textarea></label></div>`;
   o += live
     ? `<p><button class="btn big" data-a="finish">Finish visit</button></p><p><button class="btn ghost danger" data-a="del">Discard session</button></p>`
     : `<p><button class="btn ghost danger" data-a="del">Delete session</button></p>`;
@@ -299,7 +281,10 @@ function itemCard(s, it, i) {
       <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${t.load != null ? fmtN(t.load) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
       <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}" aria-label="${unit}"></label>
       <button class="tick" data-a="tick" data-i="${i}" data-j="${j}" aria-label="done">✓</button></div>`).join('');
-  return `<div class="card ex ${inSS ? 'inss' : ''} ${next?.ss && next.ss === it.ss ? 'ssfirst' : ''}">
+  const partner = live && it.ss && !inSS && CATALOG.exercises.find(e => e.ss === it.ss && e.id !== it.ex && !s.items.some(x => x.ex === e.id));
+  const ssHint = partner ? `<div class="sug">🔗 Trainer pairs this as a superset with <b>${h(partner.name)}</b>
+    <button class="btn sm" data-a="addpartner" data-i="${i}" data-ex="${partner.id}">Add it</button></div>` : '';
+  return `<div class="card ex ${inSS ? 'inss' : ''} ${next?.ss && next.ss === it.ss ? 'ssfirst' : ''}" id="item-${i}">
     <div class="exhead">
       ${ex.img ? `<a href="#/ex/${ex.id}"><img src="${h(ex.img)}" alt="" loading="lazy"></a>` : ''}
       <div><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a> ${ssTag}<br>
@@ -308,7 +293,7 @@ function itemCard(s, it, i) {
     </div>
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
     ${S.notes[ex.id] ? `<div class="last">📝 ${h(S.notes[ex.id])}</div>` : ''}
-    ${sug}
+    ${sug}${ssHint}
     <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
     <div class="row tools">
       <span><button class="btn sm ghost" data-a="addset" data-i="${i}">+ set</button>
@@ -439,7 +424,7 @@ function validateBackup(d) {
 }
 
 // ---------- router ----------
-let elapsedIv;
+let elapsedIv, pendingScroll = null;
 function render() {
   const [, route, arg] = (location.hash || '#/').split('/');
   const main = $('#main');
@@ -453,6 +438,7 @@ function render() {
   main.dataset.sid = sid || '';
   main.innerHTML = html;
   if (route === 'targets' && arg) document.getElementById('t-' + arg)?.scrollIntoView();
+  if (pendingScroll) { document.getElementById(pendingScroll)?.scrollIntoView({ block: 'start' }); pendingScroll = null; }
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#/' + (route || '')));
   $('#nav .dot').hidden = !S.active;
   const s = sid && sess(sid);
@@ -469,10 +455,14 @@ function rerender() { const y = scrollY; render(); scrollTo(0, y); }
 // ---------- actions ----------
 const cur = () => sess($('#main').dataset.sid);
 const actions = {
-  start: () => startSession(S.draft),
-  preset: b => { S.draft = [...plan(b.dataset.p).ex]; save(); rerender(); },
-  balanced: () => { S.draft = balancedPick(); save(); rerender(); toast('Picked the least recently done per group'); },
-  clear: () => { S.draft = []; save(); rerender(); },
+  pick: b => pickExercise(b.dataset.ex),
+  addpartner: b => {
+    const s = cur(), i = +b.dataset.i;
+    const tagOrder = CATALOG.exercises.filter(e => e.ss === s.items[i].ss).map(e => e.id);
+    const at = tagOrder.indexOf(b.dataset.ex) < tagOrder.indexOf(s.items[i].ex) ? i : i + 1;
+    s.items.splice(at, 0, mkItem(b.dataset.ex));
+    save(); rerender(); toast('Superset: no rest between the two');
+  },
   tick: b => {
     const s = cur(), i = +b.dataset.i, it = s.items[i], x = it.sets[+b.dataset.j];
     x.done = !x.done;
@@ -510,6 +500,10 @@ const actions = {
   },
   finish: () => {
     const s = cur();
+    if (!s.items.some(i => doneSets(i).length)) {
+      if (confirm('Nothing logged in this visit. Discard it?')) { S.sessions = S.sessions.filter(x => x !== s); S.active = null; save(); go('#/'); }
+      return;
+    }
     const open = s.items.flatMap(i => i.sets).filter(x => !x.done).length;
     if (open && !confirm(`${open} set(s) not ticked. They won't count. Finish anyway?`)) return;
     s.end = Date.now(); S.active = null; rest = null; tickRest();
@@ -561,10 +555,6 @@ document.addEventListener('change', e => {
       : Number.isInteger(v) && v >= (k === 'rest' ? 0 : 1) && v <= { sets: 20, reps: 999, rest: 900 }[k];
     if (!ok) { toast(k === 'load' ? 'Enter a weight in kg (or leave empty)' : `Enter a whole number for ${k}`); rerender(); return; }
     setTarget(el.dataset.ex, k, v); save(); toast('Target saved');
-  } else if (el.dataset.f === 'pick') {
-    S.draft = S.draft.filter(x => x !== el.value);
-    if (el.checked) S.draft.push(el.value);
-    save(); rerender();
   } else if (el.id === 'addex' && el.value) {
     const s = cur(), ex = exOf(el.value);
     s.items.push(mkItem(ex.id));
@@ -575,6 +565,7 @@ document.addEventListener('change', e => {
       validateBackup(d);
       if (!confirm(`Replace current data with backup (${d.sessions.length} sessions)?`)) return;
       S = migrate(Object.assign(emptyState(), { v: 1 }, d));
+      if (S.active && typeof S.active !== 'string') S.active = null;
       if (S.active && !sess(S.active)) S.active = null;
       save(); go('#/');
       toast('Backup imported');
@@ -584,6 +575,6 @@ document.addEventListener('change', e => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { tickRest(); if (!document.activeElement?.matches('input,textarea')) rerender(); }
 });
-window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => { scrollTo(0, 0); render(); });  // render() applies pendingScroll
 window.addEventListener('storage', e => { if (e.key === KEY) { S = store.load(); rerender(); } });
 render();

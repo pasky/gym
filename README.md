@@ -2,11 +2,11 @@
 
 A static, mobile-first exercise log.
 
-1. Plan a visit by picking exercises from any muscle group. Each group shows sets this week, a 4-week average and when it was last trained, and flags groups that are *due*. Quick-fill options are ⚖️ Balanced (the least recently done exercise per group) or the trainer's Training A/B presets.
-2. Log weight/reps per set (tap ✓ to accept the target) and let the rest timer run. Supersets skip the rest between partners.
+1. Tap ＋ on any exercise and log it; the first tap starts the visit. Exercises are grouped by muscle group, and each group shows sets this week, a 4-week average and when it was last trained. Groups untouched for a week are flagged *due*, so you can spread the work evenly. The list stays under your logged exercises for picking the next one.
+2. Log weight/reps per set (tap ✓ to accept the target) and let the rest timer run. For the trainer's supersets (row + face pull) the app offers to add the partner, and skips the rest between them.
 3. When you've hit all sets, a 📈 prompt offers to raise the target (weight or reps). The Progress tab has per-exercise charts and a muscle-balance breakdown.
 
-- `catalog.js` holds the exercise library (with muscle group + default target) and the A/B presets. **Add new exercises here** (plus a photo in `img/ex/`), keeping ids stable.
+- `catalog.js` holds the exercise library (with muscle group + default target) and the trainer's sheets. **Add new exercises here** (plus a photo in `img/ex/`), keeping ids stable.
 - All user data (sessions, target tweaks, notes) lives in `localStorage` under `gym.v1`. You can export/import it from the 💾 Data tab. Everything goes through the `store` object in `app.js`, which is where to swap in server-side storage later.
 - `./deploy.sh` rsyncs to `~/WWW/gym` and cache-busts asset URLs.
 - `python3 test/smoke.py` runs a headless Playwright smoke test (screenshots go to `/tmp/gym-*.png`).

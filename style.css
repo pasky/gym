@@ -102,19 +102,17 @@ label { display: block; }
 #nav a.on { color: var(--g); font-weight: 700; }
 #nav .dot { position: absolute; top: .35rem; left: calc(50% + .6rem); width: .55rem; height: .55rem; background: #e5484d; border-radius: 50%; }
 
-/* visit builder */
-.presets { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .3rem; }
+/* exercise picker */
 .grp .gstat { display: block; margin: .15rem 0 .4rem; }
 .grp.stale { border-left: 4px solid var(--warnb); }
 .grp.stale .gstat b { color: #9a6a00; }
-.pick { display: grid; grid-template-columns: 1.4rem 64px 1fr auto; gap: .6rem; align-items: center; padding: .45rem .3rem;
-  border-top: 1px solid #edf0ee; cursor: pointer; border-radius: 8px; }
-.pick input { width: 1.2rem; height: 1.2rem; accent-color: var(--g2); margin: 0; }
+.pick { display: grid; grid-template-columns: 64px 1fr 2.2rem; gap: .6rem; align-items: center; width: 100%; text-align: left;
+  padding: .45rem .3rem; border: 0; border-top: 1px solid #edf0ee; background: none; font: inherit; color: inherit; cursor: pointer; border-radius: 8px; }
 .pick img { width: 64px; height: 44px; object-fit: cover; border-radius: 6px; }
+.pick .go { width: 2.2rem; height: 2.2rem; border-radius: 50%; background: var(--g2); color: #fff; display: grid; place-items: center; font-size: 1.3rem; font-weight: 700; }
 .pick.on { background: var(--gl); }
-.pick .ord { background: var(--g2); color: #fff; border-radius: 99px; min-width: 1.5rem; text-align: center; font-weight: 700; font-size: .85rem; padding: .1rem .35rem; }
-.startbar { position: sticky; bottom: calc(62px + env(safe-area-inset-bottom)); z-index: 4; padding: .4rem 0; }
-.startbar .btn { box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.pick.on .go { background: #fff; color: var(--g2); border: 2px solid var(--g2); font-size: 1rem; }
+.card { scroll-margin-top: 4.2rem; }
 
 /* balance bars */
 .bars .bar { display: grid; grid-template-columns: 8.5rem 1fr 2.2rem; align-items: center; gap: .5rem; margin: .35rem 0; font-size: .88rem; }
