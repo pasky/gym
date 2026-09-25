@@ -19,3 +19,11 @@ Issues found on the two sheets (`img/sheets/`). The corrected muscle lists are i
 - **Muscle lists.** The step-up lists calves (only minor). The curl→press omits triceps. The Bulgarian split squat lists hamstrings as main (they're secondary). The isometric lunge lists adductors, but its ankle cue really targets the foot arch / tibialis posterior.
 - **Parameters.** The row + face pull superset has no rest (assumed ~90 s after the face pull). The Bulgarian split squat and isometric lunge omit "each side". It's unclear whether chest press 5 kg is per cable, what the trunk-twist med ball weighs, or whether the deadbug is 10 reps total or per side.
 - **Photos / cues.** The isometric lunge photo shows the rear knee resting on the floor. The deadbug's 2nd photo shows a moving leg extension, not a hold. "Drive through your heels" (box squat) is a dated cue.
+
+## Server sync storage (WebDAV)
+
+`server/` sets up `https://pasky.or.cz/gym-sync/`, a password-protected file store for the app's JSON state. It uses Apache's WebDAV module, allows only GET/PUT, and runs no application code on the server.
+
+- `sudo sh server/setup-webdav.sh` installs it (idempotent) and prints the generated password once. It also accepts `--reset-password` and `--uninstall`.
+- `sh server/test-local.sh` tests the same config template on a throwaway unprivileged Apache (port 18080). No root needed.
+- `sh server/check-webdav.sh URL [USER [PASS]]` verifies a live endpoint: unauthenticated requests get 401/403, and DAV/XML methods, DELETE/MOVE/COPY/MKCOL, directory listing and oversized uploads are refused.

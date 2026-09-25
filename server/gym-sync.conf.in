@@ -1,0 +1,29 @@
+# Gym log sync storage: password-protected GET/PUT of JSON files via Apache mod_dav.
+# Generated from gym/server/gym-sync.conf.in by setup-webdav.sh. Do not edit by hand.
+#
+# Security model: every request needs a valid user AND must be GET/HEAD or PUT, so
+# unauthenticated clients never reach mod_dav, and DAV's XML methods (PROPFIND, LOCK, ...)
+# plus DELETE/MOVE/COPY/MKCOL are refused even for the authenticated user.
+# The directory lives outside any DocumentRoot, so .htaccess, SSI, CGI and PHP never apply to it.
+
+Alias @URLPATH@ @DIR@
+<Directory @DIR@>
+    Dav On
+    Options None
+    AllowOverride None
+    DirectoryIndex disabled
+
+    AuthType Basic
+    AuthName "gym-sync"
+    AuthBasicProvider file
+    AuthUserFile @HTPASSWD@
+    <RequireAll>
+        Require valid-user
+        Require method GET PUT
+    </RequireAll>
+
+    LimitRequestBody 5242880
+    ForceType application/json
+    Header always set Cache-Control "no-store"
+    Header always set X-Content-Type-Options "nosniff"
+</Directory>
