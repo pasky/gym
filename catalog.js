@@ -16,9 +16,8 @@
 window.CATALOG = {
   groups: [
     { id: 'legs', name: 'Legs & glutes' },
-    { id: 'back', name: 'Back (pull)' },
-    { id: 'chest', name: 'Chest (push)' },
-    { id: 'shoulders', name: 'Shoulders & arms' },
+    { id: 'push', name: 'Push (chest, shoulders, triceps)' },
+    { id: 'pull', name: 'Pull (back, rear delts, biceps)' },
     { id: 'core', name: 'Core' },
   ],
   exercises: [
@@ -44,7 +43,7 @@ window.CATALOG = {
       tips: ['Sit back and touch the box.', 'Drive through your heels.', 'Keep your core tight and chest up.'],
     },
     {
-      id: 'seated-cable-row', group: 'back', target: { sets: 3, reps: 10, load: 25, rest: 90 }, ss: 'row-facepull',
+      id: 'seated-cable-row', group: 'pull', target: { sets: 3, reps: 10, load: 25, rest: 90 }, ss: 'row-facepull',
       name: 'Seated cable row', detail: 'Superset with face pull',
       img: 'img/ex/seated-cable-row.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Lats', 'Rhomboids', 'Mid traps'], secondary: ['Rear delts', 'Biceps', 'Core'],
@@ -54,7 +53,7 @@ window.CATALOG = {
       tips: ['Pull your shoulder blades back and down.', 'Squeeze your back at the end.', 'Control the movement.'],
     },
     {
-      id: 'face-pull', group: 'back', target: { sets: 3, reps: 12, load: 10, rest: 90 }, ss: 'row-facepull',
+      id: 'face-pull', group: 'pull', target: { sets: 3, reps: 12, load: 10, rest: 90 }, ss: 'row-facepull',
       name: 'Face pull', detail: 'Cable, rope attachment',
       img: 'img/ex/face-pull.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Rear delts', 'Rhomboids', 'Mid traps', 'Rotator cuff'], secondary: ['Biceps'],
@@ -64,7 +63,7 @@ window.CATALOG = {
       tips: ['Pull towards your face.', 'Keep elbows high (comfortably).', 'Squeeze your shoulder blades.'],
     },
     {
-      id: 'curl-to-press', group: 'shoulders', target: { sets: 3, reps: 8, load: 6, rest: 90 },
+      id: 'curl-to-press', group: 'push', target: { sets: 3, reps: 8, load: 6, rest: 90 },
       name: 'Biceps curl into shoulder press', detail: 'Dumbbells, weight is per hand',
       img: 'img/ex/curl-to-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 1,
       primary: ['Biceps', 'Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Core'],
@@ -105,7 +104,7 @@ window.CATALOG = {
       tips: ['Keep the inside ankle high.', 'Put the pressure to the outside of the foot.', 'Control the movement.'],
     },
     {
-      id: 'kinesis-chest-press', group: 'chest', target: { sets: 3, reps: 10, load: 5, rest: 60 },
+      id: 'kinesis-chest-press', group: 'push', target: { sets: 3, reps: 10, load: 5, rest: 60 },
       name: 'Chest press', detail: 'Kinesis machine, standing',
       img: 'img/ex/kinesis-chest-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Chest'], secondary: ['Front delts', 'Triceps', 'Serratus', 'Core'],
@@ -115,7 +114,7 @@ window.CATALOG = {
       tips: ['Keep your core tight and chest up.', 'Press forward and squeeze the chest.', 'Control the movement.'],
     },
     {
-      id: 'lat-pulldown', group: 'back', target: { sets: 3, reps: 10, load: 35, rest: 90 },
+      id: 'lat-pulldown', group: 'pull', target: { sets: 3, reps: 10, load: 35, rest: 90 },
       name: 'Lat pulldown', detail: 'Grip a little wider than shoulder width',
       img: 'img/ex/lat-pulldown.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Lats', 'Teres major'], secondary: ['Biceps', 'Mid traps', 'Lower traps', 'Rhomboids', 'Rear delts'],
@@ -144,7 +143,7 @@ window.CATALOG = {
       tips: ['Elbow right under the shoulder, push the floor away.', 'Hips stacked; at the top, knee–hip–shoulder in one line.', 'Lift from the side waist, lower with control. Tap, don\'t flop.'],
     },
     {
-      id: 'machine-shoulder-press', group: 'shoulders', target: { sets: 3, reps: 10, load: 10, rest: 90 },
+      id: 'machine-shoulder-press', group: 'push', target: { sets: 3, reps: 10, load: 10, rest: 90 },
       name: 'Shoulder press (machine)', detail: 'Technogym machine #65, seated',
       img: 'img/ex/machine-shoulder-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Front delts', 'Side delts', 'Triceps'], secondary: ['Upper traps', 'Serratus', 'Chest'],

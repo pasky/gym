@@ -383,7 +383,7 @@ function vBalance() {
   const ms = Object.entries(mus).sort((a, b) => b[1] - a[1]), mmax = Math.max(1, ...ms.map(x => x[1]));
   const bar = (label, v, max, extra = '') => `<div class="bar"><span>${h(label)}</span><i style="width:${100 * v / max}%"></i><b>${fmtN(v)}</b>${extra}</div>`;
   return `<h2>Balance (last 4 weeks)</h2><div class="card bars"><small>Sets per muscle group</small>
-    ${CATALOG.groups.map(g => bar(g.name, st[g.id]?.m || 0, gmax)).join('')}
+    ${CATALOG.groups.map(g => bar(g.name.replace(/ \(.*/, ''), st[g.id]?.m || 0, gmax)).join('')}
     <details><summary><small>Per muscle (secondary = ½ set)</small></summary>${ms.map(([m, v]) => bar(m, v, mmax)).join('')}</details></div>`;
 }
 
