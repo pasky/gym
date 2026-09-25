@@ -25,7 +25,7 @@ Issues found on the two sheets (`img/sheets/`). The corrected muscle lists are i
 `server/` sets up `https://pasky.or.cz/gym-sync/<profile>.json` using Apache's WebDAV module, with no application code on the server. Each profile has its own file and password. **Files are world-readable** (for now); only a profile's own password can overwrite its file. Everything other than GET/PUT of a plain `<profile>.json` name is refused.
 
 - `sudo sh server/setup-webdav.sh install` sets up the Apache config (idempotent, rolls back on failure) and runs live checks with a temporary profile.
-- `sudo sh server/setup-webdav.sh add NAME` / `passwd NAME` / `remove NAME [--purge]` / `list` manage profiles. Passwords are generated and printed once. Changes are live immediately, without an Apache reload.
+- `sudo sh server/setup-webdav.sh add NAME` / `passwd NAME` / `remove NAME [--purge]` / `list` manage profiles (names: `[a-z0-9][a-z0-9_-]{0,31}`; `selftest*` is reserved for checks). Passwords are generated and printed once. Changes are live immediately, without an Apache reload.
 - `sudo sh server/setup-webdav.sh check` / `uninstall`.
 - `sh server/test-local.sh` tests the config template on a throwaway unprivileged Apache, including inherited-handler (PHP-like) and cross-profile write attempts.
 - `sh server/test-setup-sandbox.sh` runs the whole root script end to end without root, against a sandboxed Apache and vhost file: install, re-install, profiles, rollback of a broken config, uninstall.

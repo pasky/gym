@@ -2,14 +2,18 @@
 # Verify the gym-sync endpoint behaves as intended.
 #   sh check-webdav.sh https://pasky.or.cz/gym-sync
 # Authenticated checks need a THROWAWAY profile: they overwrite <profile>.json. setup-webdav.sh
-# `check` creates a temporary "selftest" profile for this automatically. Standalone, pass
+# `check` creates a temporary "selftest-<random>" profile for this automatically. Standalone, pass
 # GYM_SYNC_USER / GYM_SYNC_PASS in the environment, or answer the prompt (empty = skip).
+# Profile names starting with "selftest" are reserved for checks, so the random names used here
+# for "missing" and "someone else's" profiles can't collide with real data.
 # The password never goes on a command line: curl gets it via a private netrc file.
 set -u
 BASE=${1:?usage: $0 BASE_URL}
+RND=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 USER=${GYM_SYNC_USER:-selftest}
 PASS=${GYM_SYNC_PASS:-}
-OTHER=${GYM_SYNC_OTHER:-nobody-else}   # a profile the test user must NOT be able to write
+OTHER=${GYM_SYNC_OTHER:-selftest-other-$RND}   # a profile the test user must NOT be able to write
+MISSING=selftest-missing-$RND
 PREFIX=${BASE#*://}; PREFIX=/${PREFIX#*/}   # URL path of the endpoint, e.g. /gym-sync
 if [ -z "$PASS" ] && [ -t 0 ]; then
 	printf 'Password of throwaway profile "%s" (empty to skip authenticated checks): ' "$USER"
@@ -27,7 +31,7 @@ expect() { # expect "description" "allowed codes (space separated)" actual
 DENY="401 403"
 
 echo "== unauthenticated"
-expect "GET missing profile (public read)" "404"   "$(code "$BASE/no-such-profile.json")"
+expect "GET missing profile (public read)" "404"   "$(code "$BASE/$MISSING.json")"
 expect "GET directory"             "403"     "$(code "$BASE/")"
 expect "GET x.php"                 "403"     "$(code "$BASE/x.php")"
 expect "GET Uppercase.json"        "403"     "$(code "$BASE/Upper.json")"

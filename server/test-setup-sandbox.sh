@@ -19,6 +19,7 @@ sed -e '/run as root/d' \
     -e "s|^DIR=.*|DIR=$T/data|" \
     -e "s|^CONF=.*|CONF=$T/gym-sync.conf|" \
     -e "s|^HTPASSWD=.*|HTPASSWD=$T/gym-sync.htpasswd|" \
+    -e "s|^LOCK=.*|LOCK=$T/setup.lock|" \
     -e 's|https://\$HOST|http://$HOST|g' \
     "$HERE/setup-webdav.sh" > "$T/srv/setup-webdav.sh"
 
@@ -90,8 +91,8 @@ $S install > "$T/out" 2>&1 && ok "install exit 0" || { bad "install failed"; cat
 grep -c '^ok ' "$T/out" | xargs echo "      live checks passed:"
 grep -q FAIL "$T/out" && { bad "check failures:"; grep FAIL "$T/out"; }
 [ "$(grep -cE "^[[:space:]]*Include[[:space:]]+$T/gym-sync\.conf$" "$T/vhost.conf")" = 1 ] && ok "Include added once" || bad "Include not added"
-cut -d: -f1 "$T/gym-sync.htpasswd" | grep -qx selftest && bad "selftest profile left behind" || ok "temporary selftest profile removed"
-[ -e "$T/data/selftest.json" ] && bad "selftest.json left behind" || ok "selftest.json removed"
+grep -q '^selftest' "$T/gym-sync.htpasswd" && bad "selftest profile left behind" || ok "temporary selftest profile removed"
+ls "$T/data" | grep -q '^selftest' && bad "selftest files left behind" || ok "selftest files removed"
 
 echo "===== install again (idempotent)"
 $S install > "$T/out" 2>&1 && ok "re-install exit 0" || { bad "re-install failed"; cat "$T/out"; }
@@ -102,6 +103,11 @@ P1=$($S add anna | sed -n 's/^Password: //p'); [ ${#P1} = 32 ] && ok "add anna -
 $S add anna >/dev/null 2>&1 && bad "duplicate add accepted" || ok "duplicate add refused"
 $S add 'Bad Name' >/dev/null 2>&1 && bad "invalid name accepted" || ok "invalid name refused"
 $S add selftest >/dev/null 2>&1 && bad "reserved name accepted" || ok "reserved name refused"
+$S add selftest-other-x >/dev/null 2>&1 && bad "reserved prefix accepted" || ok "reserved prefix refused"
+$S add "$(printf 'good\nbad')" >/dev/null 2>&1 && bad "multiline name accepted" || ok "multiline name refused"
+$S add -- -x >/dev/null 2>&1 && bad "leading-hyphen name accepted" || ok "leading-hyphen name refused"
+$S add -x >/dev/null 2>&1 && bad "leading-hyphen name accepted" || ok "leading-hyphen name refused (bare)"
+grep -qv '^[a-z0-9][a-z0-9_-]*:' "$T/gym-sync.htpasswd" && bad "htpasswd has malformed lines" || ok "htpasswd well-formed"
 P2=$($S add ben | sed -n 's/^Password: //p')
 put() { printf 'machine 127.0.0.1 login %s password %s\n' "$1" "$2" > "$T/netrc"; curl -s -o /dev/null -w '%{http_code}' --netrc-file "$T/netrc" -X PUT --data "$4" "http://127.0.0.1:$PORT/gym-sync/$3.json"; }
 [ "$(put anna "$P1" anna '{"who":"anna"}')" = 201 ] && ok "anna writes anna.json" || bad "anna can't write"
@@ -112,6 +118,15 @@ P1b=$($S passwd anna | sed -n 's/^Password: //p')
 [ "$(put anna "$P1" anna '{}')" = 401 ] && ok "old password rejected after passwd" || bad "old password still works"
 [ "$(put anna "$P1b" anna '{"who":"anna2"}')" = 204 ] && ok "new password works" || bad "new password"
 $S list | grep -q '^anna ' && $S list | grep -q '^ben ' && ok "list shows anna, ben" || bad "list"
+# a live check must not touch real profiles' data
+cp "$T/data/ben.json" "$T/ben.before"
+$S check > "$T/out" 2>&1 && ok "check passes with real profiles present" || { bad "check failed"; grep FAIL "$T/out"; }
+cmp -s "$T/data/ben.json" "$T/ben.before" && ok "check left ben.json intact" || bad "check modified ben.json"
+cut -d: -f1 "$T/gym-sync.htpasswd" | sort | tr '\n' ' ' | grep -qx 'anna ben ' && ok "check left profiles intact" || bad "profiles changed by check: $(cut -d: -f1 "$T/gym-sync.htpasswd" | tr '\n' ' ')"
+# commands are serialized: while someone holds the lock, another command waits
+flock "$T/setup.lock" sleep 3 & LP=$!; sleep 0.5
+lrc=0; timeout 1 $S list >/dev/null 2>&1 || lrc=$?; [ $lrc = 124 ] && ok "concurrent command waits for the lock" || bad "lock not honored"
+wait $LP
 $S remove ben >/dev/null
 [ "$(put ben "$P2" ben '{}')" = 401 ] && ok "removed profile can't write" || bad "removed profile still writes"
 [ -f "$T/data/ben.json" ] && ok "remove keeps data" || bad "remove deleted data"

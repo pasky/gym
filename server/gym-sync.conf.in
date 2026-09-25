@@ -3,12 +3,13 @@
 #
 # Access model:
 #  - Only plain "<profile>.json" names directly in the directory are reachable
-#    (profile = [a-z0-9_-]{1,32}); everything else is 403, incl. directory listing, subpaths
+#    (profile = [a-z0-9][a-z0-9_-]{0,31}); everything else is 403, incl. directory listing, subpaths
 #    and executable-looking names (x.php, x.php.json, .htaccess).
 #  - GET/HEAD: anyone (world-readable, for now).
 #  - PUT: only when authenticated as the user named like the file (profile "anna" -> anna.json).
 #  - Every other method (PROPFIND, LOCK, DELETE, MOVE, COPY, MKCOL, OPTIONS, ...) is refused for
-#    everyone, so DAV's XML parsing code is never reached.
+#    everyone, so DAV's XML parsing code is never reached. (TRACE is answered by Apache core
+#    server-wide unless TraceEnable off; it only echoes the request and doesn't touch files.)
 #  - Handlers are forced off (SetHandler none + RemoveHandler .json), so even a globally configured
 #    handler (e.g. PHP via SetHandler or AddHandler) never runs here.
 #  - The directory is outside any DocumentRoot, AllowOverride None, Options None (no symlinks, SSI, CGI).
@@ -25,12 +26,12 @@ Alias @URLPATH@ @DIR@
     AuthBasicProvider file
     AuthUserFile @HTPASSWD@
     <RequireAll>
-        Require expr "%{REQUEST_URI} =~ m#^@URLPATH@/[a-z0-9_-]{1,32}\.json$#"
+        Require expr "%{REQUEST_URI} =~ m#^@URLPATH@/[a-z0-9][a-z0-9_-]{0,31}\.json$#"
         <RequireAny>
             Require method GET
             <RequireAll>
                 Require method PUT
-                Require expr "%{REQUEST_URI} =~ m#^@URLPATH@/([a-z0-9_-]{1,32})\.json$# && %{REMOTE_USER} == $1"
+                Require expr "%{REQUEST_URI} =~ m#^@URLPATH@/([a-z0-9][a-z0-9_-]{0,31})\.json$# && %{REMOTE_USER} == $1"
             </RequireAll>
         </RequireAny>
     </RequireAll>

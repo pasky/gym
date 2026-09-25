@@ -10,7 +10,8 @@
 #   sudo sh server/setup-webdav.sh check           # live endpoint checks (uses a temporary profile)
 #   sudo sh server/setup-webdav.sh uninstall       # remove the vhost Include (keeps data and files)
 #
-# Profile names: [a-z0-9_-]{1,32}. Profile changes take effect immediately (no Apache reload).
+# Profile names: [a-z0-9][a-z0-9_-]{0,31}; names starting with "selftest" are reserved for checks.
+# Profile changes take effect immediately (no Apache reload). All commands are serialized by a lock.
 #
 # `install` does:
 #   - apt-installs apache2-utils (htpasswd) if missing
@@ -29,7 +30,7 @@ URLPATH=/gym-sync
 DIR=/var/lib/gym-sync
 CONF=/etc/apache2/gym-sync.conf
 HTPASSWD=/etc/apache2/gym-sync.htpasswd
-SELFTEST=selftest
+LOCK=/run/lock/gym-sync-setup.lock
 HERE=$(cd "$(dirname "$0")" && pwd)
 STAMP=$(date +%Y%m%d%H%M%S)
 # an active (uncommented) Include of exactly $CONF
@@ -42,8 +43,17 @@ usage() { sed -n '4,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 CMD=${1:-}; [ -n "$CMD" ] || usage
 NAME=${2:-}
 
-valid_name() { printf '%s' "$1" | grep -Eqx '[a-z0-9_-]{1,32}'; }
-has_user() { [ -f "$HTPASSWD" ] && cut -d: -f1 "$HTPASSWD" | grep -qxF "$1"; }
+# one command at a time: htpasswd read-modify-write and config edits must not interleave
+command -v flock >/dev/null || die "flock missing (util-linux)"
+exec 9>"$LOCK"
+flock -w 60 9 || die "another setup-webdav.sh is running (lock $LOCK)"
+
+valid_name() {
+	case "$1" in ''|[!a-z0-9]*|*[!a-z0-9_-]*) return 1 ;; esac   # also rejects newlines
+	[ ${#1} -le 32 ]
+}
+reserved_name() { case "$1" in selftest*) return 0 ;; esac; return 1; }
+has_user() { [ -f "$HTPASSWD" ] && cut -d: -f1 "$HTPASSWD" | grep -qxF -- "$1"; }
 genpass() {
 	p=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-32)
 	[ ${#p} = 32 ] || die "password generation failed"
@@ -67,23 +77,25 @@ need_installed() { grep -Eq "$INCLUDE_RE" "$VHOST" || echo "note: not installed 
 
 cmd_check() {
 	command -v curl >/dev/null || die "curl missing"
-	has_user "$SELFTEST" && die "profile '$SELFTEST' exists; it's reserved for checks, remove it first"
+	rnd=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+	CHK_USER=selftest-$rnd CHK_OTHER=selftest-other-$rnd   # reserved prefix: can't be real profiles
+	has_user "$CHK_USER" && die "temporary profile name collision, retry"
 	pass=$(genpass)
-	set_password "$SELFTEST" "$pass"
-	# always drop the temporary profile and its file, even on failure or Ctrl-C
-	trap 'del_user "$SELFTEST"; rm -f "$DIR/$SELFTEST.json" "$DIR/nobody-else.json"' EXIT
+	set_password "$CHK_USER" "$pass"
+	# always drop exactly this run's temporary profile and files, even on failure or Ctrl-C
+	trap 'del_user "$CHK_USER"; rm -f "$DIR/$CHK_USER.json" "$DIR/$CHK_OTHER.json"' EXIT
 	trap 'exit 1' HUP INT TERM
-	echo "== Checking https://$HOST$URLPATH (temporary profile '$SELFTEST')"
+	echo "== Checking https://$HOST$URLPATH (temporary profile '$CHK_USER')"
 	rc=0
-	GYM_SYNC_USER=$SELFTEST GYM_SYNC_PASS=$pass GYM_SYNC_OTHER=nobody-else \
+	GYM_SYNC_USER=$CHK_USER GYM_SYNC_PASS=$pass GYM_SYNC_OTHER=$CHK_OTHER \
 		sh "$HERE/check-webdav.sh" "https://$HOST$URLPATH" </dev/null || rc=$?
 	return $rc
 }
 
 case "$CMD" in
 add|passwd)
-	valid_name "$NAME" || die "profile name must match [a-z0-9_-]{1,32}"
-	[ "$NAME" = "$SELFTEST" ] && die "'$SELFTEST' is reserved"
+	valid_name "$NAME" || die "profile name must match [a-z0-9][a-z0-9_-]{0,31}"
+	reserved_name "$NAME" && die "names starting with 'selftest' are reserved for checks"
 	command -v htpasswd >/dev/null || apt-get install -y apache2-utils
 	if [ "$CMD" = add ]; then has_user "$NAME" && die "profile '$NAME' exists; use 'passwd $NAME' for a new password"
 	else has_user "$NAME" || die "no profile '$NAME'"; fi
@@ -192,6 +204,6 @@ rc=0; cmd_check || rc=$?
 echo
 echo "Endpoint: https://$HOST$URLPATH/<profile>.json (world-readable; PUT needs that profile's password)"
 echo "Data dir: $DIR (include it in backups)"
-[ -s "$HTPASSWD" ] && { echo "Profiles:"; cut -d: -f1 "$HTPASSWD" | grep -vxF "$SELFTEST" | sed 's/^/  /'; } \
+[ -s "$HTPASSWD" ] && { echo "Profiles:"; cut -d: -f1 "$HTPASSWD" | grep -v '^selftest' | sed 's/^/  /'; } \
 	|| echo "No profiles yet: sudo sh $0 add NAME"
 [ $rc = 0 ] || die "Apache config is installed, but the live endpoint checks FAILED (see above). Fix, or run 'uninstall'."
