@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-10-23.1139';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-10-23.1141';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -119,6 +119,18 @@ function achievedLoad(sets, t) {
 function achievedText(ex, t, sets) {
   const base = ex.kind === 'hold' ? 0 : achievedLoad(sets, t);
   return `${t.sets}×${t.reps}${ex.kind === 'hold' ? ' s' : ''}${base ? ` @ ${fmtN(base)} kg` : ''}`;
+}
+// Default weight for an empty set: the previous set's weight in this visit, else what you managed
+// for all sets last time if that beats the target (unless the target weight was changed since), else the target.
+function defaultW(s, it, j) {
+  const prev = it.sets.slice(0, j).findLast(x => x.w != null);
+  if (prev) return prev.w;
+  const lp = lastPerf(it.ex, s.id), t = it.target;
+  if (lp && !S.targetLog.some(l => l.ex === it.ex && l.k === 'load' && l.t > lp.s.start)) {
+    const w = achievedLoad(lp.sets, { ...t, load: null });
+    if (w > (t.load ?? 0)) return w;
+  }
+  return t.load;
 }
 // Each option is a full target patch: bumping reps also carries over the weight actually used.
 function progressOptions(ex, t, sets) {
@@ -515,9 +527,9 @@ function itemCard(s, it, i) {
       ${progressButtons(ex, pi, doneSets(it), i)}</div>`;
   }
   const unit = ex.kind === 'hold' ? 'sec' : (ex.perSide ? 'reps/side' : 'reps');
-  const rows = it.sets.map((x, j) => `<div class="set ${x.done ? 'done' : ''}">
+  const rows = it.sets.map((x, j, _, dw = defaultW(s, it, j)) => `<div class="set ${x.done ? 'done' : ''}">
       <span class="n">${j + 1}</span>
-      <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${t.load != null ? fmtN(t.load) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
+      <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${dw != null ? fmtN(dw) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
       <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}" aria-label="${unit}"></label>
       <button class="tick" data-a="tick" data-i="${i}" data-j="${j}" aria-label="done">✓</button></div>`).join('');
   const partner = live && it.ss && !inSS && CATALOG.exercises.find(e => e.ss === it.ss && e.id !== it.ex && !s.items.some(x => x.ex === e.id));
@@ -775,7 +787,7 @@ const actions = {
     const s = cur(), i = +b.dataset.i, it = s.items[i], x = it.sets[+b.dataset.j];
     x.done = !x.done;
     if (x.done) {
-      if (x.w == null && it.target.load != null) x.w = it.target.load;
+      if (x.w == null) x.w = defaultW(s, it, +b.dataset.j);
       if (x.r == null) x.r = it.target.reps;
       x.at = Date.now();
       const nx = s.items[i + 1];

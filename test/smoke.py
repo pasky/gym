@@ -57,7 +57,7 @@ try:
             pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
         pg.click('[data-a=finish]')
         print('targets:', state(pg)['targets'])
-        tg = state(pg)['targets']; assert tg['goblet-step-up']['load'] == 8 and set(tg) == {'goblet-step-up'}, tg
+        tg = state(pg)['targets']; assert tg['goblet-step-up']['load'] == 10 and set(tg) == {'goblet-step-up'}, tg
 
         # went heavier than the target: prompt names the weight, and bumping reps carries it into the target
         pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
@@ -65,10 +65,14 @@ try:
             items: [{ex: 'goblet-step-up', ss: '', note: '', target: {sets: 3, reps: 8, load: 6, rest: 90}, sets: [8, 8, 8].map(w => ({w, r: 8, done: true}))}]}]})""")
         pp.reload(); pp.click('[data-a=pick][data-ex=goblet-step-up]'); pp.wait_for_selector('.sug')
         assert '3×8 @ 8 kg' in pp.inner_text('.sug'), pp.inner_text('.sug')
+        assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'default weight should be last time\'s 8, not target 6'
         pp.click('.sug [data-a=apply] >> nth=1')  # → 9 reps @ 8 kg
         assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'weight not carried into the set defaults'
         assert pp.get_attribute('[data-j="0"][data-k=r]', 'placeholder') == '9'
         pt = state(pp)['targets']['goblet-step-up']; assert pt['load'] == 8 and pt['reps'] == 9, pt
+        pp.fill('[data-j="0"][data-k=w]', '9'); pp.click('[data-a=tick][data-j="0"]')
+        assert pp.get_attribute('[data-j="1"][data-k=w]', 'placeholder') == '9', 'default weight should follow the previous set'
+        pp.click('[data-a=tick][data-j="1"]'); assert state(pp)['sessions'][-1]['items'][0]['sets'][1]['w'] == 9
         pc.close()
 
         # superset rest: partner added after its sets are done must not suppress rest on the other
