@@ -51,13 +51,25 @@ try:
         pg.click('[data-a=pick][data-ex=goblet-step-up]')
         pg.wait_for_selector('.sug')
         pg.screenshot(path='/tmp/gym-session2.png', full_page=True)
-        pg.click('.sug [data-k=load]')
+        pg.click('.sug [data-a=apply] >> nth=0')  # → kg
         pg.wait_for_timeout(200)
         for j in range(3):
             pg.click(f'[data-a=tick][data-i="0"][data-j="{j}"]')
         pg.click('[data-a=finish]')
         print('targets:', state(pg)['targets'])
         tg = state(pg)['targets']; assert tg['goblet-step-up']['load'] == 8 and set(tg) == {'goblet-step-up'}, tg
+
+        # went heavier than the target: prompt names the weight, and bumping reps carries it into the target
+        pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
+        pp.evaluate("""localStorage['gym.v1'] = JSON.stringify({v: 3, active: null, targets: {}, targetLog: [], notes: {}, deleted: {}, sessions: [{id: 'h', start: Date.now() - 3*864e5, end: Date.now() - 3*864e5 + 36e5, note: '',
+            items: [{ex: 'goblet-step-up', ss: '', note: '', target: {sets: 3, reps: 8, load: 6, rest: 90}, sets: [8, 8, 8].map(w => ({w, r: 8, done: true}))}]}]})""")
+        pp.reload(); pp.click('[data-a=pick][data-ex=goblet-step-up]'); pp.wait_for_selector('.sug')
+        assert '3×8 @ 8 kg' in pp.inner_text('.sug'), pp.inner_text('.sug')
+        pp.click('.sug [data-a=apply] >> nth=1')  # → 9 reps @ 8 kg
+        assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'weight not carried into the set defaults'
+        assert pp.get_attribute('[data-j="0"][data-k=r]', 'placeholder') == '9'
+        pt = state(pp)['targets']['goblet-step-up']; assert pt['load'] == 8 and pt['reps'] == 9, pt
+        pc.close()
 
         # superset rest: partner added after its sets are done must not suppress rest on the other
         pg.goto(URL); pg.click('[data-a=pick][data-ex=face-pull]'); pg.wait_for_selector('#item-0')

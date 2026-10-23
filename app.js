@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-09-25.1756';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-10-23.1139';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -115,13 +115,22 @@ function achievedLoad(sets, t) {
   const ws = sets.filter(x => (x.r ?? 0) >= t.reps).map(x => x.w ?? 0).sort((a, b) => b - a);
   return Math.max(t.load ?? 0, ws[t.sets - 1] ?? 0);
 }
+// What was achieved, e.g. "3×8 @ 8 kg" (weight = achievedLoad, so it reflects going heavier than the target).
+function achievedText(ex, t, sets) {
+  const base = ex.kind === 'hold' ? 0 : achievedLoad(sets, t);
+  return `${t.sets}×${t.reps}${ex.kind === 'hold' ? ' s' : ''}${base ? ` @ ${fmtN(base)} kg` : ''}`;
+}
+// Each option is a full target patch: bumping reps also carries over the weight actually used.
 function progressOptions(ex, t, sets) {
-  if (ex.kind === 'hold') return [{ k: 'reps', v: t.reps + (ex.step || 5), label: `→ ${t.reps + (ex.step || 5)} s` }];
+  if (ex.kind === 'hold') return [{ set: { reps: t.reps + (ex.step || 5) }, label: `→ ${t.reps + (ex.step || 5)} s` }];
   const o = [], base = achievedLoad(sets, t), step = ex.step || 2.5;
-  if (ex.loadType !== 'none') o.push({ k: 'load', v: Math.round((base + step) * 100) / 100, label: `→ ${fmtN(base + step)} kg` });
-  o.push({ k: 'reps', v: t.reps + 1, label: `→ ${t.reps + 1} reps` });
+  const keep = base > (t.load ?? 0) ? { load: base } : {};
+  if (ex.loadType !== 'none') o.push({ set: { load: Math.round((base + step) * 100) / 100 }, label: `→ ${fmtN(base + step)} kg` });
+  o.push({ set: { reps: t.reps + 1, ...keep }, label: `→ ${t.reps + 1} reps${keep.load ? ` @ ${fmtN(base)} kg` : ''}` });
   return o;
 }
+const progressButtons = (ex, t, sets, i) => progressOptions(ex, t, sets).map(op =>
+  `<button class="btn sm" data-a="apply" data-i="${i}" data-set="${h(JSON.stringify(op.set))}">${op.label}</button>`).join('');
 // Metric for charts: top weight if the exercise was ever loaded, else total reps/seconds.
 function metricKind(allSets) {
   return allSets.some(x => x.w > 0) ? { unit: 'kg', label: 'Top weight' } : { unit: '', label: 'Total reps' };
@@ -499,11 +508,11 @@ function itemCard(s, it, i) {
   let sug = '';
   const pi = EX[it.ex] ? targetOf(it.ex) : null;
   if (live && lp && hitTarget(lp.sets, t)) {
-    sug = `<div class="sug">📈 Last time you hit all ${t.sets}×${t.reps}. Time to progress?
-      ${progressOptions(ex, t, lp.sets).map(op => `<button class="btn sm" data-a="apply" data-i="${i}" data-k="${op.k}" data-v="${op.v}">${op.label}</button>`).join('')}</div>`;
+    sug = `<div class="sug">📈 Last time you hit all ${h(achievedText(ex, t, lp.sets))}. Time to progress?
+      ${progressButtons(ex, t, lp.sets, i)}</div>`;
   } else if (!live && !VIEW && pi && doneSets(it).length && hitTarget(doneSets(it), pi)) {
-    sug = `<div class="sug">✅ All targets hit. Raise the target for next time?
-      ${progressOptions(ex, pi, doneSets(it)).map(op => `<button class="btn sm" data-a="apply" data-i="${i}" data-k="${op.k}" data-v="${op.v}">${op.label}</button>`).join('')}</div>`;
+    sug = `<div class="sug">✅ All targets hit (${h(achievedText(ex, pi, doneSets(it)))}). Raise the target for next time?
+      ${progressButtons(ex, pi, doneSets(it), i)}</div>`;
   }
   const unit = ex.kind === 'hold' ? 'sec' : (ex.perSide ? 'reps/side' : 'reps');
   const rows = it.sets.map((x, j) => `<div class="set ${x.done ? 'done' : ''}">
@@ -793,9 +802,11 @@ const actions = {
     if (confirm(`Remove ${exOf(s.items[i].ex).name} from this session?`)) { s.items.splice(i, 1); save(); rerender(); }
   },
   apply: b => {
-    const s = cur(), it = s.items[+b.dataset.i], k = b.dataset.k, v = +b.dataset.v;
-    if (EX[it.ex]) setTarget(it.ex, k, v);
-    if (!s.end) it.target[k] = v;
+    const s = cur(), it = s.items[+b.dataset.i];
+    for (const [k, v] of Object.entries(JSON.parse(b.dataset.set))) {
+      if (EX[it.ex]) setTarget(it.ex, k, v);
+      if (!s.end) it.target[k] = v;
+    }
     save(); rerender(); toast('Target updated');
   },
   finish: () => {
