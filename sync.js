@@ -151,6 +151,7 @@ function sanitizeState(x) {
     if (typeof s.name === 'string') o.name = s.name;
     o.items = (Array.isArray(s.items) ? s.items : []).filter(it => isObj(it) && ID_RE.test(it.ex)).map(it => ({
       ex: it.ex, ss: typeof it.ss === 'string' && ID_RE.test(it.ss) ? it.ss : '', note: strOr(it.note),
+      ...(it.easy === true ? { easy: true } : {}),
       target: { sets: 3, reps: 10, load: null, rest: 90, ...sanitizeTarget(it.target) },
       sets: (Array.isArray(it.sets) ? it.sets : []).filter(isObj).map(z => {
         const q = { w: numOr(z.w), r: numOr(z.r), done: z.done === true };

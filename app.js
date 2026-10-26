@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-10-26.1333';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-10-26.1339';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -70,7 +70,6 @@ const exOf = id => EX[id] || { id, name: id + ' (removed)', primary: [], seconda
 const groupName = id => CATALOG.groups.find(g => g.id === id)?.name || 'Other';
 const targetOf = exId => { const { u, ...o } = S.targets[exId] || {}; return { sets: 3, reps: 10, load: null, rest: 90, ...(EX[exId]?.target || {}), ...o }; };
 const hasOverride = exId => Object.keys(S.targets[exId] || {}).some(k => k !== 'u');
-const noteOf = exId => S.notes[exId]?.t || '';
 function setTarget(exId, k, v) {
   const cur = targetOf(exId);
   if (cur[k] === v) return;
@@ -97,16 +96,23 @@ function exHistory(exId, exceptSid) {
     .filter(x => x.sets.length);
 }
 const lastPerf = (exId, exceptSid) => exHistory(exId, exceptSid).at(-1);
-// The most recent non-empty visit note for an exercise from a visit before `s`: notes like
-// "pos 21" stay on the card until replaced, instead of vanishing after the next note-less visit.
+// An exercise's current note: the newest of its latest non-empty visit note and the note edited on
+// the exercise page (S.notes; an empty one there clears it). Notes like "pos 21" stay on the card
+// until replaced, instead of vanishing after the next note-less visit.
+// For a visit card (`s`), only notes from earlier visits count (plus the exercise page while it's live).
 function lastNote(exId, s) {
-  const ss = S.sessions.filter(x => x.end && x.id !== s.id && x.start < s.start).sort((a, b) => b.start - a.start);
+  const ss = S.sessions.filter(x => s ? x.end && x.id !== s.id && x.start < s.start : true).sort((a, b) => b.start - a.start);
+  let r = null;
   for (const x of ss) {
     const it = x.items.find(i => i.ex === exId && i.note?.trim());
-    if (it) return { s: x, note: it.note.trim() };
+    if (it) { r = { note: it.note.trim(), at: x.start, u: sessU(x) }; break; }
   }
-  return null;
+  const n = S.notes[exId];
+  if (n && (!s?.end || n.u < s.start) && (!r || n.u > r.u)) r = { note: n.t.trim(), at: n.u, u: n.u };
+  return r?.note ? r : null;
 }
+// target changed after time t (then an old "too easy" no longer asks for progress)
+const targetChangedSince = (exId, t) => S.targetLog.some(l => l.ex === exId && l.t > t);
 function fmtSets(sets, ex) {
   // group consecutive sets with the same weight: "6 kg × 8, 8 · 8 kg × 7"
   const unit = ex.kind === 'hold' ? 's' : '';
@@ -529,11 +535,12 @@ function itemCard(s, it, i) {
   const lp = lastPerf(it.ex, s.id), ln = lastNote(it.ex, s);
   let sug = '';
   const pi = EX[it.ex] ? targetOf(it.ex) : null;
-  if (live && lp && hitTarget(lp.sets, t)) {
-    sug = `<div class="sug">📈 Last time you hit all ${h(achievedText(ex, t, lp.sets))}. Time to progress?
+  const lpEasy = lp?.it.easy && !targetChangedSince(it.ex, lp.s.start);
+  if (live && lp && (hitTarget(lp.sets, t) || lpEasy)) {
+    sug = `<div class="sug">📈 ${lpEasy ? `Last time (${h(fmtSets(lp.sets, ex))}) felt easy` : `Last time you hit all ${h(achievedText(ex, t, lp.sets))}`}. Time to progress?
       ${progressButtons(ex, t, lp.sets, i)}</div>`;
-  } else if (!live && !VIEW && pi && doneSets(it).length && hitTarget(doneSets(it), pi)) {
-    sug = `<div class="sug">✅ All targets hit (${h(achievedText(ex, pi, doneSets(it)))}). Raise the target for next time?
+  } else if (!live && !VIEW && pi && doneSets(it).length && (hitTarget(doneSets(it), pi) || (it.easy && !targetChangedSince(it.ex, s.start)))) {
+    sug = `<div class="sug">${it.easy ? '😎 Felt easy' : `✅ All targets hit (${h(achievedText(ex, pi, doneSets(it)))})`}. Raise the target for next time?
       ${progressButtons(ex, pi, doneSets(it), i)}</div>`;
   }
   const unit = ex.kind === 'hold' ? 'sec' : (ex.perSide ? 'reps/side' : 'reps');
@@ -555,17 +562,17 @@ function itemCard(s, it, i) {
     ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
       ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}</div>` : ''}
-    ${ln ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.s.start)})</small></div>` : ''}
-    ${noteOf(ex.id) ? `<div class="last">📝 ${h(noteOf(ex.id))}</div>` : ''}
+    ${ln ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.at)})</small></div>` : ''}
     ${sug}${ssHint}
     <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
     <div class="row tools">
       <span><button class="btn sm ghost" data-a="addset" data-i="${i}">+ set</button>
-      <button class="btn sm ghost" data-a="rmset" data-i="${i}">− set</button></span>
+      <button class="btn sm ghost" data-a="rmset" data-i="${i}">− set</button>
+      <button class="btn sm ${it.easy ? '' : 'ghost'}" data-a="easy" data-i="${i}" title="felt easy: suggest a harder target next time">😎 easy</button></span>
       <span><button class="btn sm ghost" data-a="up" data-i="${i}" title="move up">↑</button>
       <button class="btn sm ghost danger" data-a="rmitem" data-i="${i}" title="remove">✕</button></span>
     </div>
-    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(it.note)}" placeholder="Note: seat pos, left knee… (shown again next visit)">
+    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(it.note)}" placeholder="Note: seat pos, left knee… (carries over)">
   </div>`;
 }
 
@@ -603,7 +610,8 @@ function vExercise(id) {
     ${ex.breath ? `<div class="card"><b>🫁 Breathing</b><p>${h(ex.breath)}</p>
       <p><small>Rule of thumb: breathe out on the effort, in on the way back. Never hold your breath through a rep. If you lose the rhythm, slow the rep down to match your breath.</small></p></div>` : ''}
     ${ex.tips?.length ? `<div class="card"><b>Coaching tips</b><ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul></div>` : ''}
-    <div class="card"><label><b>My notes</b><textarea data-f="exnote" data-ex="${id}" rows="2" placeholder="Machine settings, seat height, what to watch…">${h(noteOf(id))}</textarea></label></div>
+    <div class="card"><label><b>📝 Note</b><textarea data-f="exnote" data-ex="${id}" rows="2" placeholder="Machine settings, seat height, what to watch…">${h(lastNote(id)?.note || '')}</textarea></label>
+      <small class="muted">Shown on the workout card. A visit's note field updates it too; the newest wins.</small></div>
     <h2>Progress</h2>
     ${m ? `<div class="card"><b>${m.label}${m.unit ? ` (${m.unit})` : ''}</b>${chart(pts, m.unit)}
       ${m.unit === 'kg' ? `<b>Volume (kg × reps)</b>${chart(vol, 'kg')}` : ''}</div>
@@ -823,6 +831,12 @@ const actions = {
   rmitem: b => {
     const s = cur(), i = +b.dataset.i;
     if (confirm(`Remove ${exOf(s.items[i].ex).name} from this session?`)) { s.items.splice(i, 1); save(); rerender(); }
+  },
+  easy: b => {
+    const it = cur().items[+b.dataset.i];
+    if (it.easy) delete it.easy; else it.easy = true;
+    save(); rerender();
+    if (it.easy) toast(cur().end ? 'Noted as easy' : 'Noted: next time you\'ll be offered a harder target');
   },
   apply: b => {
     const s = cur(), it = s.items[+b.dataset.i];
