@@ -7,5 +7,5 @@ REV=$(git rev-parse --short HEAD 2>/dev/null || date +%s)
 [ -n "$(git status --porcelain 2>/dev/null)" ] && REV="$REV-dirty$(date +%s)"
 mkdir -p "$DEST"
 rsync -a --delete --exclude .git --exclude deploy.sh --exclude README.md --exclude test --exclude .gitignore --exclude .nojekyll ./ "$DEST/"
-sed -i "s/?v=dev/?v=$REV/g" "$DEST/index.html"
+sed -i "s/?v=[^\"]*\"/?v=$REV\"/g" "$DEST/index.html"
 echo "deployed $REV to $DEST"

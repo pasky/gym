@@ -1,6 +1,9 @@
 #!/bin/sh
-# Stamp app.js with a version (UTC time of the commit) so the app can tell when it's running a stale copy.
+# Stamp app.js with a version (UTC time of the commit) so the app can tell when it's running a stale copy,
+# and put the same version on index.html's asset URLs: a new version then has new URLs, which no browser
+# or CDN cache can answer with the old files (GitHub Pages caches everything for 10 minutes).
 # Enable once per clone:  git config core.hooksPath .githooks
-v=$(date -u +%Y-%m-%d.%H%M)
+v=$(date -u +%Y-%m-%d.%H%M%S)
 sed -i "s/^const APP_VERSION = '[^']*';/const APP_VERSION = '$v';/" app.js
-git add app.js
+sed -i "s/\.\(js\|css\)?v=[^\"]*\"/.\1?v=$v\"/g" index.html
+git add app.js index.html

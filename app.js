@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-10-26.1339';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-10-26.134432';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
