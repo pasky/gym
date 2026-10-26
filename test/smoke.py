@@ -75,6 +75,16 @@ try:
         pp.click('[data-a=tick][data-j="1"]'); assert state(pp)['sessions'][-1]['items'][0]['sets'][1]['w'] == 9
         pc.close()
 
+        # a visit note stays on the card after a later visit without a note
+        pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
+        pp.evaluate("""const it = note => ({ex: 'cable-trunk-twist', ss: '', note, target: {sets: 3, reps: 10, load: 7.5, rest: 90}, sets: [{w: 7.5, r: 10, done: true}]});
+            localStorage['gym.v1'] = JSON.stringify({v: 3, active: null, targets: {}, targetLog: [], notes: {}, deleted: {}, sessions: [
+            {id: 'n1', start: Date.now() - 9*864e5, end: Date.now() - 9*864e5 + 36e5, note: '', items: [it('Pos 21')]},
+            {id: 'n2', start: Date.now() - 2*864e5, end: Date.now() - 2*864e5 + 36e5, note: '', items: [it('')]}]})""")
+        pp.reload(); pp.click('[data-a=pick][data-ex=cable-trunk-twist]'); pp.wait_for_selector('#item-0')
+        assert 'Pos 21' in pp.inner_text('#item-0'), pp.inner_text('#item-0')
+        pc.close()
+
         # superset rest: partner added after its sets are done must not suppress rest on the other
         pg.goto(URL); pg.click('[data-a=pick][data-ex=face-pull]'); pg.wait_for_selector('#item-0')
         for j in range(3):

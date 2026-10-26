@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-10-23.1141';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-10-26.1333';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -97,6 +97,16 @@ function exHistory(exId, exceptSid) {
     .filter(x => x.sets.length);
 }
 const lastPerf = (exId, exceptSid) => exHistory(exId, exceptSid).at(-1);
+// The most recent non-empty visit note for an exercise from a visit before `s`: notes like
+// "pos 21" stay on the card until replaced, instead of vanishing after the next note-less visit.
+function lastNote(exId, s) {
+  const ss = S.sessions.filter(x => x.end && x.id !== s.id && x.start < s.start).sort((a, b) => b.start - a.start);
+  for (const x of ss) {
+    const it = x.items.find(i => i.ex === exId && i.note?.trim());
+    if (it) return { s: x, note: it.note.trim() };
+  }
+  return null;
+}
 function fmtSets(sets, ex) {
   // group consecutive sets with the same weight: "6 kg × 8, 8 · 8 kg × 7"
   const unit = ex.kind === 'hold' ? 's' : '';
@@ -516,7 +526,7 @@ function itemCard(s, it, i) {
   const prev = s.items[i - 1], next = s.items[i + 1];
   const inSS = it.ss && (prev?.ss === it.ss || next?.ss === it.ss);
   const ssTag = inSS ? `<span class="chip ss">Superset ${prev?.ss === it.ss ? 'B' : 'A'}</span>` : '';
-  const lp = lastPerf(it.ex, s.id);
+  const lp = lastPerf(it.ex, s.id), ln = lastNote(it.ex, s);
   let sug = '';
   const pi = EX[it.ex] ? targetOf(it.ex) : null;
   if (live && lp && hitTarget(lp.sets, t)) {
@@ -544,7 +554,8 @@ function itemCard(s, it, i) {
     </div>
     ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
       ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
-    ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${lp.it.note ? ` · <i>${h(lp.it.note)}</i>` : ''}</div>` : ''}
+    ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}</div>` : ''}
+    ${ln ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.s.start)})</small></div>` : ''}
     ${noteOf(ex.id) ? `<div class="last">📝 ${h(noteOf(ex.id))}</div>` : ''}
     ${sug}${ssHint}
     <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
@@ -554,7 +565,7 @@ function itemCard(s, it, i) {
       <span><button class="btn sm ghost" data-a="up" data-i="${i}" title="move up">↑</button>
       <button class="btn sm ghost danger" data-a="rmitem" data-i="${i}" title="remove">✕</button></span>
     </div>
-    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(it.note)}" placeholder="Note (e.g. left knee, seat pos 4…)">
+    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(it.note)}" placeholder="Note: seat pos, left knee… (shown again next visit)">
   </div>`;
 }
 
