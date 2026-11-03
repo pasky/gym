@@ -137,7 +137,7 @@ window.CATALOG = {
     {
       id: 'side-plank-hip-lift', group: 'core', target: { sets: 3, reps: 10, load: null, rest: 60 },
       name: 'Side plank hip lifts', detail: 'Kneeling side plank on forearm: bottom knee bent, top leg straight, top hand on hip',
-      img: null, kind: 'reps', perSide: true, loadType: 'none', step: 1,
+      img: 'img/ex/side-plank-hip-lift.jpg', kind: 'reps', perSide: true, loadType: 'none', step: 1,
       primary: ['Obliques', 'Glute med'], secondary: ['Quadratus lumborum', 'Transverse abdominis', 'Serratus', 'Rotator cuff'],
       breath: 'Exhale as you lift the hips · inhale as you lower.',
       tips: ['Elbow right under the shoulder, push the floor away.', 'Hips stacked; at the top, knee–hip–shoulder in one line.', 'Lift from the side waist, lower with control. Tap, don\'t flop.'],
@@ -170,7 +170,7 @@ window.CATALOG = {
     {
       id: 'one-arm-db-row', group: 'pull', target: { sets: 3, reps: 10, load: 14, rest: 90 },
       name: 'One-arm dumbbell row', detail: 'Kneeling on a flat bench: same-side knee and hand on the bench',
-      img: null, kind: 'reps', perSide: true, loadType: 'kg', step: 2,
+      img: 'img/ex/one-arm-db-row.jpg', kind: 'reps', perSide: true, loadType: 'kg', step: 2,
       primary: ['Lats', 'Rhomboids', 'Mid traps'], secondary: ['Rear delts', 'Biceps', 'Teres major', 'Core'],
       breath: 'Exhale as you pull the dumbbell to your hip · inhale as you lower it.',
       tips: ['Back flat, look at the floor ~1 m ahead of the bench (don\'t let the head hang).', 'Start the pull with the shoulder blade, elbow close to the body towards the hip.', 'Don\'t twist the torso to heave the weight; full stretch at the bottom without rounding the upper back.'],
@@ -178,7 +178,7 @@ window.CATALOG = {
     {
       id: 'underhand-lat-pulldown', group: 'pull', target: { sets: 3, reps: 10, load: 40, rest: 90 },
       name: 'Underhand lat pulldown', detail: 'Chin-up grip (palms towards you), about shoulder width',
-      img: null, kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
+      img: 'img/ex/underhand-lat-pulldown.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
       primary: ['Lats', 'Biceps'], secondary: ['Teres major', 'Lower traps', 'Rhomboids', 'Rear delts'],
       breath: 'Exhale as you pull the bar down to your chest · inhale as you let it rise.',
       tips: ['Start by pulling the shoulders down away from the ears.', 'Bar to the upper chest, elbows down and in.', 'Lean back only slightly, no swinging; neck neutral.'],
@@ -194,7 +194,7 @@ window.CATALOG = {
     {
       id: 'lateral-raise', group: 'push', target: { sets: 3, reps: 10, load: 4, rest: 60 },
       name: 'Lateral raise', detail: 'Dumbbells, weight is per hand',
-      img: null, kind: 'reps', perSide: false, loadType: 'kg', step: 1,
+      img: 'img/ex/lateral-raise.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 1,
       primary: ['Side delts'], secondary: ['Front delts', 'Upper traps', 'Serratus'],
       breath: 'Exhale as you raise the arms · inhale as you lower.',
       tips: ['Slight bend in the elbows; lead with the elbows, not the hands.', 'Stop at shoulder height.', 'Don\'t shrug or swing; lower slowly.'],
