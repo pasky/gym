@@ -62,6 +62,7 @@ ol.mini small { display: block; }
 .ex.ssfirst + .ex.inss { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 .sets { margin-top: .5rem; }
 .set { display: grid; grid-template-columns: 1.6rem 1fr 1fr 3rem; gap: .5rem; align-items: center; padding: .25rem 0; }
+.set.sides { grid-template-columns: 1.6rem 1.15fr 1fr 1fr 3rem; gap: .35rem; }
 .set .n { color: var(--mut); font-weight: 700; text-align: center; }
 .set label { display: flex; align-items: center; gap: .3rem; background: #f1f4f2; border-radius: 10px; padding: 0 .5rem; }
 .set input { width: 100%; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 1.15rem; font-weight: 600;

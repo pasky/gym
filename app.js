@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-11-03.143636';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-11-09.135533';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -113,22 +113,28 @@ function lastNote(exId, s) {
 }
 // target changed after time t (then an old "too easy" no longer asks for progress)
 const targetChangedSince = (exId, t) => S.targetLog.some(l => l.ex === exId && l.t > t);
+// Per-side exercises log each side separately: r = left, r2 = right (sets without r2, e.g. logged
+// before sides were split, count r for both). A set counts towards a target only if both sides got
+// there (minR); totals and volume use the per-side average (avgR), comparable with older entries.
+const minR = x => x.r2 == null ? x.r : x.r == null ? x.r2 : Math.min(x.r, x.r2);
+const avgR = x => x.r2 == null ? x.r : x.r == null ? x.r2 : (x.r + x.r2) / 2;
+const repsText = x => x.r2 == null || x.r2 === x.r ? (x.r ?? '?') : `${x.r ?? '?'}/${x.r2}`;
 function fmtSets(sets, ex) {
-  // group consecutive sets with the same weight: "6 kg × 8, 8 · 8 kg × 7"
+  // group consecutive sets with the same weight: "6 kg × 8, 8 · 8 kg × 7" (per side: "8/7" = left/right)
   const unit = ex.kind === 'hold' ? 's' : '';
   const groups = [];
   for (const x of sets) {
     const g = groups.at(-1);
-    if (g && g.w === x.w) g.r.push(x.r); else groups.push({ w: x.w, r: [x.r] });
+    if (g && g.w === x.w) g.r.push(repsText(x)); else groups.push({ w: x.w, r: [repsText(x)] });
   }
-  return groups.map(g => (g.w ? `${fmtN(g.w)} kg × ` : '') + g.r.map(r => (r ?? '?') + unit).join(', ')).join(' · ');
+  return groups.map(g => (g.w ? `${fmtN(g.w)} kg × ` : '') + g.r.map(r => r + unit).join(', ')).join(' · ');
 }
 function hitTarget(sets, t) {
-  return sets.filter(x => (x.r ?? 0) >= t.reps && (x.w ?? 0) >= (t.load ?? 0)).length >= t.sets;
+  return sets.filter(x => (minR(x) ?? 0) >= t.reps && (x.w ?? 0) >= (t.load ?? 0)).length >= t.sets;
 }
 // Weight you managed for all target sets at target reps (can exceed the target if you went heavier).
 function achievedLoad(sets, t) {
-  const ws = sets.filter(x => (x.r ?? 0) >= t.reps).map(x => x.w ?? 0).sort((a, b) => b - a);
+  const ws = sets.filter(x => (minR(x) ?? 0) >= t.reps).map(x => x.w ?? 0).sort((a, b) => b - a);
   return Math.max(t.load ?? 0, ws[t.sets - 1] ?? 0);
 }
 // What was achieved, e.g. "3×8 @ 8 kg" (weight = achievedLoad, so it reflects going heavier than the target).
@@ -163,7 +169,7 @@ const progressButtons = (ex, t, sets, i) => progressOptions(ex, t, sets).map(op 
 function metricKind(allSets) {
   return allSets.some(x => x.w > 0) ? { unit: 'kg', label: 'Top weight' } : { unit: '', label: 'Total reps' };
 }
-const metricOf = (sets, m) => m.unit === 'kg' ? Math.max(0, ...sets.map(x => x.w || 0)) : sets.reduce((a, x) => a + (x.r || 0), 0);
+const metricOf = (sets, m) => m.unit === 'kg' ? Math.max(0, ...sets.map(x => x.w || 0)) : sets.reduce((a, x) => a + (avgR(x) || 0), 0);
 
 // ---------- sessions ----------
 function mkItem(exId) {
@@ -543,11 +549,13 @@ function itemCard(s, it, i) {
     sug = `<div class="sug">${it.easy ? '😎 Felt easy' : `✅ All targets hit (${h(achievedText(ex, pi, doneSets(it)))})`}. Raise the target for next time?
       ${progressButtons(ex, pi, doneSets(it), i)}</div>`;
   }
-  const unit = ex.kind === 'hold' ? 'sec' : (ex.perSide ? 'reps/side' : 'reps');
-  const rows = it.sets.map((x, j, _, dw = defaultW(s, it, j)) => `<div class="set ${x.done ? 'done' : ''}">
+  const unit = ex.kind === 'hold' ? 'sec' : 'reps';
+  const sides = ex.perSide || it.sets.some(x => x.r2 != null);   // left and right logged separately
+  const repIn = (x, j, k, label) => `<label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="${k}" value="${x[k] ?? ''}" placeholder="${t.reps}" aria-label="${label}"></label>`;
+  const rows = it.sets.map((x, j, _, dw = defaultW(s, it, j)) => `<div class="set ${sides ? 'sides' : ''} ${x.done ? 'done' : ''}">
       <span class="n">${j + 1}</span>
       <label><input type="text" inputmode="decimal" data-f="set" data-i="${i}" data-j="${j}" data-k="w" value="${fmtN(x.w)}" placeholder="${dw != null ? fmtN(dw) : (ex.loadType === 'none' ? '–' : 'BW')}" aria-label="kg"></label>
-      <label><input type="text" inputmode="numeric" data-f="set" data-i="${i}" data-j="${j}" data-k="r" value="${x.r ?? ''}" placeholder="${t.reps}" aria-label="${unit}"></label>
+      ${sides ? repIn(x, j, 'r', `${unit} left`) + repIn(x, j, 'r2', `${unit} right`) : repIn(x, j, 'r', unit)}
       <button class="tick" data-a="tick" data-i="${i}" data-j="${j}" aria-label="done">✓</button></div>`).join('');
   const partner = live && it.ss && !inSS && CATALOG.exercises.find(e => e.ss === it.ss && e.id !== it.ex && !s.items.some(x => x.ex === e.id));
   const ssHint = partner ? `<div class="sug">🔗 Trainer pairs this as a superset with <b>${h(partner.name)}</b>
@@ -564,7 +572,7 @@ function itemCard(s, it, i) {
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}</div>` : ''}
     ${ln ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.at)})</small></div>` : ''}
     ${sug}${ssHint}
-    <div class="sets"><div class="set hdr"><span></span><small>kg</small><small>${unit}</small><span></span></div>${rows}</div>
+    <div class="sets"><div class="set hdr ${sides ? 'sides' : ''}"><span></span><small>kg</small>${sides ? `<small>L ${unit}</small><small>R ${unit}</small>` : `<small>${unit}</small>`}<span></span></div>${rows}</div>
     <div class="row tools">
       <span><button class="btn sm ghost" data-a="addset" data-i="${i}">+ set</button>
       <button class="btn sm ghost" data-a="rmset" data-i="${i}">− set</button>
@@ -599,7 +607,7 @@ function vExercise(id) {
   const m = hist.length ? metricKind(hist.flatMap(x => x.sets)) : null;
   if (m && ex.kind === 'hold') m.label = 'Total seconds';
   const pts = hist.map(x => ({ t: x.s.start, v: metricOf(x.sets, m) }));
-  const vol = hist.map(x => ({ t: x.s.start, v: x.sets.reduce((a, s) => a + (s.w || 0) * (s.r || 0), 0) }));
+  const vol = hist.map(x => ({ t: x.s.start, v: x.sets.reduce((a, s) => a + (s.w || 0) * (avgR(s) || 0), 0) }));
 
   return `${ex.img ? `<img class="hero" src="${h(ex.img)}" alt="">` : ''}
     <h1>${h(ex.name)}</h1><p class="muted">${h(ex.detail || '')}</p>
@@ -808,6 +816,7 @@ const actions = {
     if (x.done) {
       if (x.w == null) x.w = defaultW(s, it, +b.dataset.j);
       if (x.r == null) x.r = it.target.reps;
+      if (exOf(it.ex).perSide && x.r2 == null) x.r2 = it.target.reps;
       x.at = Date.now();
       const nx = s.items[i + 1];
       if (!s.end) {

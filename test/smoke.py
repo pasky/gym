@@ -75,6 +75,17 @@ try:
         pp.click('[data-a=tick][data-j="1"]'); assert state(pp)['sessions'][-1]['items'][0]['sets'][1]['w'] == 9
         pc.close()
 
+        # per-side exercises log left/right reps separately; a weaker side doesn't count as hitting the target
+        pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
+        pp.evaluate("""localStorage['gym.v1'] = JSON.stringify({v: 3, active: null, targets: {}, targetLog: [], notes: {}, deleted: {}, sessions: [{id: 'ps', start: Date.now() - 3*864e5, end: Date.now() - 3*864e5 + 36e5, note: '',
+            items: [{ex: 'one-arm-db-row', ss: '', note: '', target: {sets: 3, reps: 10, load: 14, rest: 90}, sets: [9, 10, 10].map(r2 => ({w: 14, r: 10, r2, done: true}))}]}]})""")
+        pp.reload(); pp.click('[data-a=pick][data-ex=one-arm-db-row]'); pp.wait_for_selector('#item-0')
+        assert '14 kg × 10/9, 10, 10' in pp.inner_text('#item-0 .last'), pp.inner_text('#item-0')
+        assert not pp.is_visible('#item-0 .sug'), 'right side missed a rep: no progression prompt'
+        pp.fill('[data-j="0"][data-k=r]', '8'); pp.click('[data-a=tick][data-j="0"]')
+        x = state(pp)['sessions'][-1]['items'][0]['sets'][0]; assert (x['r'], x['r2']) == (8, 10), x
+        pc.close()
+
         # a visit note stays on the card after a later visit without a note
         pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
         pp.evaluate("""const it = note => ({ex: 'cable-trunk-twist', ss: '', note, target: {sets: 3, reps: 10, load: 7.5, rest: 90}, sets: [{w: 7.5, r: 10, done: true}]});
@@ -127,7 +138,7 @@ try:
         # narrow phone: reps input must fit two digits
         pg.set_viewport_size({'width': 320, 'height': 700})
         pg.goto(URL); pg.click('[data-a=pick][data-ex=cable-trunk-twist]'); pg.wait_for_selector('#item-0')
-        w = pg.eval_on_selector('[data-f=set][data-i="0"][data-j="0"][data-k=r]', 'e => e.clientWidth')
+        w = min(pg.eval_on_selector(f'[data-f=set][data-i="0"][data-j="0"][data-k={k}]', 'e => e.clientWidth') for k in ('r', 'r2'))
         print('reps input width @320px:', w); assert w >= 30, w
         pg.screenshot(path='/tmp/gym-narrow.png')
         # service worker: app opens offline, and serves updated files when online

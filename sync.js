@@ -155,6 +155,7 @@ function sanitizeState(x) {
       target: { sets: 3, reps: 10, load: null, rest: 90, ...sanitizeTarget(it.target) },
       sets: (Array.isArray(it.sets) ? it.sets : []).filter(isObj).map(z => {
         const q = { w: numOr(z.w), r: numOr(z.r), done: z.done === true };
+        if (numOr(z.r2) !== null) q.r2 = z.r2;   // right side of a per-side exercise (r = left)
         if (numOr(z.at) !== null) q.at = z.at;
         return q;
       }),
