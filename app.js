@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-11-09.135533';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-11-18.205623';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -570,7 +570,7 @@ function itemCard(s, it, i) {
     ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
       ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
     ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}</div>` : ''}
-    ${ln ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.at)})</small></div>` : ''}
+    ${ln && !live ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.at)})</small></div>` : ''}
     ${sug}${ssHint}
     <div class="sets"><div class="set hdr ${sides ? 'sides' : ''}"><span></span><small>kg</small>${sides ? `<small>L ${unit}</small><small>R ${unit}</small>` : `<small>${unit}</small>`}<span></span></div>${rows}</div>
     <div class="row tools">
@@ -580,7 +580,7 @@ function itemCard(s, it, i) {
       <span><button class="btn sm ghost" data-a="up" data-i="${i}" title="move up">↑</button>
       <button class="btn sm ghost danger" data-a="rmitem" data-i="${i}" title="remove">✕</button></span>
     </div>
-    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(it.note)}" placeholder="Note: seat pos, left knee… (carries over)">
+    <input type="text" class="note" data-f="inote" data-i="${i}" value="${h(live ? it.note || ln?.note || '' : it.note)}" placeholder="Note: seat pos, left knee… (carries over)">
   </div>`;
 }
 
@@ -945,7 +945,13 @@ document.addEventListener('input', e => {
   if (f === 'set') {
     const x = cur().items[+el.dataset.i].sets[+el.dataset.j];
     x[el.dataset.k] = num(el.value);
-  } else if (f === 'inote') cur().items[+el.dataset.i].note = el.value;
+  } else if (f === 'inote') {
+    // a live card's field is prefilled with the carried-over note (the item's own note stays empty until
+    // edited, so it isn't copied into every visit); clearing it clears the carried note too
+    const it = cur().items[+el.dataset.i];
+    it.note = el.value;
+    if (!cur().end && !el.value.trim()) S.notes[it.ex] = { t: '', u: nextU(S.notes[it.ex]?.u) };
+  }
   else if (f === 'snote') cur().note = el.value;
   else if (f === 'exnote') S.notes[el.dataset.ex] = { t: el.value, u: nextU(S.notes[el.dataset.ex]?.u) };
   else return;

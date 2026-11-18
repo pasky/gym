@@ -5,7 +5,7 @@ A small, mobile-first workout log that runs entirely in the browser. It's a stat
 **Live:** https://pasky.github.io/gym/
 
 1. Tap ＋ on any exercise and log it; the first tap starts the visit. Exercises are grouped by muscle group, and each group shows sets this week, a 4-week average and when it was last trained. Groups untouched for a week are flagged *due*, so you can spread the work evenly.
-2. Log weight/reps per set (tap ✓ to accept the target; per-side exercises get separate left/right counts, and a set counts as hitting the target only if both sides did) and let the rest timer run. Each card shows the coaching tips, a breathing cue, your last performance and your latest note for it (e.g. seat position). For the trainer's supersets the app offers to add the partner, and skips the rest between them.
+2. Log weight/reps per set (tap ✓ to accept the target; per-side exercises get separate left/right counts, and a set counts as hitting the target only if both sides did) and let the rest timer run. Each card shows the coaching tips, a breathing cue, your last performance and your latest note for it (e.g. seat position), prefilled in the note field: edit it to update it, clear it to drop it. For the trainer's supersets the app offers to add the partner, and skips the rest between them.
 3. When you've hit all sets, or tapped 😎 *easy*, a 📈 prompt offers to raise the target. The Progress tab has per-exercise charts and a muscle-balance breakdown, and the Targets tab lets you tweak prescriptions.
 
 Everything is saved in the browser on every change. Syncing is optional.

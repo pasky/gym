@@ -93,14 +93,21 @@ try:
             {id: 'n1', start: Date.now() - 9*864e5, end: Date.now() - 9*864e5 + 36e5, note: '', items: [it('Pos 21')]},
             {id: 'n2', start: Date.now() - 2*864e5, end: Date.now() - 2*864e5 + 36e5, note: '', items: [it('')]}]})""")
         pp.reload(); pp.click('[data-a=pick][data-ex=cable-trunk-twist]'); pp.wait_for_selector('#item-0')
-        assert 'Pos 21' in pp.inner_text('#item-0'), pp.inner_text('#item-0')
+        # the live card's note field is prefilled with it, without copying it into this visit
+        note = lambda: pp.input_value('#item-0 [data-f=inote]')
+        assert note() == 'Pos 21', note()
+        assert state(pp)['sessions'][-1]['items'][0]['note'] == ''
         # one note: the exercise page edits the same note, and clearing it hides it
         pp.goto(URL + '#/ex/cable-trunk-twist'); pp.wait_for_selector('[data-f=exnote]')
         assert pp.input_value('[data-f=exnote]') == 'Pos 21'
         pp.fill('[data-f=exnote]', 'Pos 22'); pp.goto(URL + '#/s/' + state(pp)['active'])
-        pp.wait_for_selector('#item-0'); assert 'Pos 22' in pp.inner_text('#item-0') and 'Pos 21' not in pp.inner_text('#item-0')
+        pp.wait_for_selector('#item-0'); assert note() == 'Pos 22', note()
         pp.goto(URL + '#/ex/cable-trunk-twist'); pp.fill('[data-f=exnote]', ''); pp.goto(URL + '#/s/' + state(pp)['active'])
-        pp.wait_for_selector('#item-0'); assert '📝' not in pp.inner_text('#item-0'), pp.inner_text('#item-0')
+        pp.wait_for_selector('#item-0'); assert note() == '', note()
+        # clearing the prefilled field on the card clears the carried note too
+        pp.goto(URL + '#/ex/cable-trunk-twist'); pp.fill('[data-f=exnote]', 'Pos 23'); pp.goto(URL + '#/s/' + state(pp)['active'])
+        pp.wait_for_selector('#item-0'); assert note() == 'Pos 23', note()
+        pp.fill('#item-0 [data-f=inote]', ''); pp.reload(); pp.wait_for_selector('#item-0'); assert note() == '', note()
         # 😎 easy: no prompt without hitting the targets, until the visit is marked easy
         pp.on('dialog', lambda d: d.accept())  # "2 set(s) not ticked" on finish
         pp.click('[data-a=tick][data-j="0"]')
