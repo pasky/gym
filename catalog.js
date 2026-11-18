@@ -185,11 +185,11 @@ window.CATALOG = {
     },
     {
       id: 'landmine-press', group: 'push', target: { sets: 3, reps: 10, load: 5, rest: 90 },
-      name: 'Landmine press', detail: 'Olympic bar in a floor landmine; load = plate on the free end (the bar adds more)',
-      img: 'img/ex/landmine-press.jpg', kind: 'reps', perSide: false, loadType: 'kg', step: 2.5,
+      name: 'Landmine press', detail: 'One arm at a time, Olympic bar in a floor landmine; load = plate on the free end (the bar adds more)',
+      img: 'img/ex/landmine-press.jpg', kind: 'reps', perSide: true, loadType: 'kg', step: 2.5,
       primary: ['Front delts', 'Chest', 'Triceps'], secondary: ['Serratus', 'Side delts', 'Core'],
       breath: 'Exhale as you press up along the arc · inhale as you lower to the shoulder.',
-      tips: ['Ribs down, core braced; don\'t arch the low back to finish the press.', 'Reach through at the top, but don\'t shrug towards the ear.', 'Staggered stance or half-kneeling for more stability.'],
+      tips: ['Ribs down, core braced; don\'t arch the low back to finish the press.', 'Reach through at the top, but don\'t shrug towards the ear.', 'Lunge-like staggered stance (opposite leg forward) or half-kneeling for more stability.'],
     },
     {
       id: 'lateral-raise', group: 'push', target: { sets: 3, reps: 10, load: 4, rest: 60 },
