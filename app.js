@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-11-18.212047';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-11-18.212949';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -474,10 +474,9 @@ function copyText(t, what) {
 const chips = arr => arr.map(m => `<span class="chip">${h(m)}</span>`).join('');
 // `w`: the weight the sets are actually prefilled with (last visit's, if heavier than the target), so
 // the headline doesn't advertise a lighter weight than the one you're about to lift
-function targetText(ex, t, w) {
+function targetText(ex, t, w = t.load) {
   const bits = [`${t.sets} × ${t.reps}${ex.kind === 'hold' ? ' s' : ''}${ex.perSide ? ' /side' : ''}`];
-  if (w != null && w !== (t.load ?? null)) bits.push(`${fmtN(w)} kg as last time (target ${t.load ? fmtN(t.load) + ' kg' : 'bodyweight'})`);
-  else if (t.load) bits.push(`${fmtN(t.load)} kg`); else if (ex.loadType === 'bw') bits.push('bodyweight');
+  if (w) bits.push(`${fmtN(w)} kg`); else if (ex.loadType === 'bw') bits.push('bodyweight');
   if (t.rest) bits.push(`rest ${t.rest} s`);
   return bits.join(' · ');
 }
@@ -541,7 +540,7 @@ function itemCard(s, it, i) {
   const prev = s.items[i - 1], next = s.items[i + 1];
   const inSS = it.ss && (prev?.ss === it.ss || next?.ss === it.ss);
   const ssTag = inSS ? `<span class="chip ss">Superset ${prev?.ss === it.ss ? 'B' : 'A'}</span>` : '';
-  const lp = lastPerf(it.ex, s.id), ln = lastNote(it.ex, s);
+  const lp = lastPerf(it.ex, s.id), ln = lastNote(it.ex, s), w0 = live ? defaultW(s, it, 0) : t.load;
   let sug = '';
   const pi = EX[it.ex] ? targetOf(it.ex) : null;
   const lpEasy = lp?.it.easy && !targetChangedSince(it.ex, lp.s.start);
@@ -568,11 +567,11 @@ function itemCard(s, it, i) {
       ${ex.img ? `<a href="#/ex/${ex.id}"><img src="${h(ex.img)}" alt="" loading="lazy"></a>` : ''}
       <div><a href="#/ex/${ex.id}"><b>${h(ex.name)}</b></a> ${ssTag}<br>
       <small>${h(ex.detail || '')}</small><br>
-      <span class="target">🎯 ${h(targetText(ex, t, live ? defaultW(s, it, 0) : null))}</span></div>
+      <span class="target">🎯 ${h(targetText(ex, t, w0))}</span></div>
     </div>
     ${ex.breath || ex.tips?.length ? `<div class="tips">${ex.breath ? `<div class="breath">🫁 ${h(ex.breath)}</div>` : ''}
       ${ex.tips?.length ? `<ul>${ex.tips.map(t => `<li>${h(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
-    ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}</div>` : ''}
+    ${lp ? `<div class="last">Last (${fmtDs(lp.s.start)}): ${h(fmtSets(lp.sets, ex))}${w0 !== t.load ? ` <small>(target ${t.load ? fmtN(t.load) + ' kg' : 'bodyweight'})</small>` : ''}</div>` : ''}
     ${ln && !live ? `<div class="last">📝 <i>${h(ln.note)}</i> <small>(${fmtDs(ln.at)})</small></div>` : ''}
     ${sug}${ssHint}
     <div class="sets"><div class="set hdr ${sides ? 'sides' : ''}"><span></span><small>kg</small>${sides ? `<small>L ${unit}</small><small>R ${unit}</small>` : `<small>${unit}</small>`}<span></span></div>${rows}</div>

@@ -66,11 +66,13 @@ try:
         pp.reload(); pp.click('[data-a=pick][data-ex=goblet-step-up]'); pp.wait_for_selector('.sug')
         assert '3×8 @ 8 kg' in pp.inner_text('.sug'), pp.inner_text('.sug')
         assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'default weight should be last time\'s 8, not target 6'
-        assert '8 kg as last time (target 6 kg)' in pp.inner_text('#item-0 .target'), 'headline should show the prefilled weight'
+        assert pp.inner_text('#item-0 .target') == '🎯 3 × 8 /side · 8 kg · rest 90 s', 'headline should show the prefilled weight'
+        assert '(target 6 kg)' in pp.inner_text('#item-0 .last'), pp.inner_text('#item-0 .last')
         pp.click('.sug [data-a=apply] >> nth=1')  # → 9 reps @ 8 kg
         assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'weight not carried into the set defaults'
         assert pp.get_attribute('[data-j="0"][data-k=r]', 'placeholder') == '9'
         assert pp.inner_text('#item-0 .target') == '🎯 3 × 9 /side · 8 kg · rest 90 s', pp.inner_text('#item-0 .target')
+        assert 'target' not in pp.inner_text('#item-0 .last')
         pt = state(pp)['targets']['goblet-step-up']; assert pt['load'] == 8 and pt['reps'] == 9, pt
         pp.fill('[data-j="0"][data-k=w]', '9'); pp.click('[data-a=tick][data-j="0"]')
         assert pp.get_attribute('[data-j="1"][data-k=w]', 'placeholder') == '9', 'default weight should follow the previous set'
