@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '2026-11-18.212949';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
+const APP_VERSION = '2026-11-23.130635';   // stamped by .githooks/pre-commit; compared with the server's copy to detect stale caches
 // Gym log: state in localStorage (see store below), optionally synced to a GitHub repo (sync.js).
 // Exercises come from catalog.js.
 
@@ -147,8 +147,12 @@ function achievedText(ex, t, sets) {
 function defaultW(s, it, j) {
   const prev = it.sets.slice(0, j).findLast(x => x.w != null);
   if (prev) return prev.w;
-  const lp = lastPerf(it.ex, s.id), t = it.target;
-  if (lp && !S.targetLog.some(l => l.ex === it.ex && l.k === 'load' && l.t > lp.s.start)) {
+  return startW(it.ex, it.target, s.id);
+}
+// the weight to start at: last visit's, if heavier than the target (unless the target changed since)
+function startW(exId, t, exceptSid) {
+  const lp = lastPerf(exId, exceptSid);
+  if (lp && !S.targetLog.some(l => l.ex === exId && l.k === 'load' && l.t > lp.s.start)) {
     const w = achievedLoad(lp.sets, { ...t, load: null });
     if (w > (t.load ?? 0)) return w;
   }
@@ -512,7 +516,7 @@ function vPicker(s) {
         const on = s?.items.some(i => i.ex === e.id);
         return `<button class="pick ${on ? 'on' : ''}" data-a="pick" data-ex="${e.id}">
           ${e.img ? `<img src="${h(e.img)}" alt="" loading="lazy">` : '<span></span>'}
-          <span><b>${h(e.name)}</b><br><small>${h(targetText(e, targetOf(e.id)))} · ${ago(lastDone(e.id))}</small></span>
+          <span><b>${h(e.name)}</b><br><small>${h(targetText(e, targetOf(e.id), startW(e.id, targetOf(e.id))))} · ${ago(lastDone(e.id))}</small></span>
           <span class="go">${on ? '✓' : '+'}</span></button>`;
       }).join('')}
     </div>`;
@@ -605,7 +609,7 @@ function chart(pts, unit) {
 function vExercise(id) {
   const ex = EX[id];
   if (!ex) return '<p>Unknown exercise.</p>';
-  const hist = exHistory(id);
+  const hist = exHistory(id), t0 = targetOf(id), w0 = startW(id, t0);
   const m = hist.length ? metricKind(hist.flatMap(x => x.sets)) : null;
   if (m && ex.kind === 'hold') m.label = 'Total seconds';
   const pts = hist.map(x => ({ t: x.s.start, v: metricOf(x.sets, m) }));
@@ -613,7 +617,8 @@ function vExercise(id) {
 
   return `${ex.img ? `<img class="hero" src="${h(ex.img)}" alt="">` : ''}
     <h1>${h(ex.name)}</h1><p class="muted">${h(ex.detail || '')}</p>
-    <p>🎯 <a href="#/targets/${ex.id}">Target</a>: ${h(targetText(ex, targetOf(id)))} · <span class="chip">${h(groupName(ex.group))}</span></p>
+    <p>🎯 <a href="#/targets/${ex.id}">Target</a>: ${h(targetText(ex, t0, w0))} · <span class="chip">${h(groupName(ex.group))}</span>
+      ${w0 !== t0.load ? `<br><small class="muted">as last time (set target ${t0.load ? fmtN(t0.load) + ' kg' : 'bodyweight'})</small>` : ''}</p>
     <div class="card"><b>Primary</b><div>${chips(ex.primary || [])}</div>
       ${ex.secondary?.length ? `<b>Secondary</b><div class="sec">${chips(ex.secondary)}</div>` : ''}</div>
     ${ex.review ? `<div class="card warn"><b>⚠️ Trainer sheet check</b><p><small>Sheet says: ${h(ex.sheet)}</small></p><p>${h(ex.review)}</p></div>` : ''}

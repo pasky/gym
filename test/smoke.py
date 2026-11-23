@@ -63,7 +63,9 @@ try:
         pc = b.new_context(); pp = pc.new_page(); pp.goto(URL)
         pp.evaluate("""localStorage['gym.v1'] = JSON.stringify({v: 3, active: null, targets: {}, targetLog: [], notes: {}, deleted: {}, sessions: [{id: 'h', start: Date.now() - 3*864e5, end: Date.now() - 3*864e5 + 36e5, note: '',
             items: [{ex: 'goblet-step-up', ss: '', note: '', target: {sets: 3, reps: 8, load: 6, rest: 90}, sets: [8, 8, 8].map(w => ({w, r: 8, done: true}))}]}]})""")
-        pp.reload(); pp.click('[data-a=pick][data-ex=goblet-step-up]'); pp.wait_for_selector('.sug')
+        pp.reload(); assert '3 × 8 /side · 8 kg' in pp.inner_text('[data-a=pick][data-ex=goblet-step-up]'), 'exercise list should match the card'
+        pp.goto(URL + '#/ex/goblet-step-up'); pp.wait_for_selector('h1'); assert '3 × 8 /side · 8 kg' in pp.inner_text('#main')
+        pp.goto(URL); pp.click('[data-a=pick][data-ex=goblet-step-up]'); pp.wait_for_selector('.sug')
         assert '3×8 @ 8 kg' in pp.inner_text('.sug'), pp.inner_text('.sug')
         assert pp.get_attribute('[data-j="0"][data-k=w]', 'placeholder') == '8', 'default weight should be last time\'s 8, not target 6'
         assert pp.inner_text('#item-0 .target') == '🎯 3 × 8 /side · 8 kg · rest 90 s', 'headline should show the prefilled weight'
